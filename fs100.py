@@ -580,6 +580,8 @@ class FS100:
         return ans.status
 
     class VarType(IntEnum):
+        IO = 0x78  # 1 byte
+        REGISTER = 0x79  # 2 bytes
         BYTE = 0x7a  # 1 byte
         INTEGER = 0x7b  # 2 bytes
         DOUBLE = 0x7c  # 4 bytes
@@ -595,7 +597,11 @@ class FS100:
             self.val = val
 
         def set_val(self, raw_bytes):
-            if self.type == FS100.VarType.BYTE:
+            if self.type == FS100.VarType.IO:
+                self.val = struct.unpack('B', raw_bytes[0:1])[0]
+            elif self.type == FS100.VarType.REGISTER:
+                self.val = struct.unpack('<H', raw_bytes[0:2])[0]
+            elif self.type == FS100.VarType.BYTE:
                 self.val = struct.unpack('B', raw_bytes[0:1])[0]
             elif self.type == FS100.VarType.INTEGER:
                 self.val = struct.unpack('<h', raw_bytes[0:2])[0]
@@ -608,7 +614,11 @@ class FS100:
 
         def val_to_bytes(self):
             ret = None
-            if self.type == FS100.VarType.BYTE:
+            if self.type == FS100.VarType.IO:
+                ret = struct.pack('B', self.val)
+            elif self.type == FS100.VarType.REGISTER:
+                ret = struct.pack('<H', self.val)
+            elif self.type == FS100.VarType.BYTE:
                 ret = struct.pack('B', self.val)
             elif self.type == FS100.VarType.INTEGER:
                 ret = struct.pack('<h', self.val)
@@ -639,6 +649,59 @@ class FS100:
         self.errno = ans.added_status
         if ans.status != FS100.ERROR_SUCCESS:
             print("failed writing the variable, err={}".format(hex(ans.added_status)))
+        return ans.status
+
+    class SystemInfoType(IntEnum):
+        R1 = 11
+        R2 = 12
+        S1 = 21
+        S2 = 22
+        S3 = 23
+        APPLICATION = 101
+
+    def acquire_system_info(self, type, info):
+        req = FS100ReqPacket(FS100PacketHeader.HEADER_DIVISION_ROBOT_CONTROL, 0, 0x89, type, 0, 0x01, bytearray(0), 0)
+        ans = self.transmit(req.to_bytes())
+        self.errno = ans.added_status
+        if ans.status != FS100.ERROR_SUCCESS:
+            print("failed acquiring system info, err={}".format(hex(ans.added_status)))
+        else:
+            info['software_version'] = ans.data[0:24].decode('utf-8')
+            info['model'] = ans.data[24:40].decode('utf-8')
+            info['parameter_version'] = ans.data[40:48].decode('utf-8')
+        return ans.status
+
+    class ManagementTimeType(IntEnum):
+        CONTROL_POWER_ON = 1
+        SERVO_POWER_ON_TOTAL = 10
+        SERVO_POWER_ON_R1 = 11
+        SERVO_POWER_ON_R2 = 12
+        SERVO_POWER_ON_S1 = 21
+        SERVO_POWER_ON_S2 = 22
+        SERVO_POWER_ON_S3 = 23
+        PLAYBACK_TOTAL = 110
+        PLAYBACK_R1 = 111
+        PLAYBACK_R2 = 112
+        PLAYBACK_S1 = 121
+        PLAYBACK_S2 = 122
+        PLAYBACK_S3 = 123
+        MOTION_TOTAL = 210
+        MOTION_R1 = 211
+        MOTION_R2 = 212
+        MOTION_S1 = 221
+        MOTION_S2 = 222
+        MOTION_S3 = 223
+        OPERATION = 301
+
+    def acquire_management_time(self, type, time):
+        req = FS100ReqPacket(FS100PacketHeader.HEADER_DIVISION_ROBOT_CONTROL, 0, 0x88, type, 0, 0x01, bytearray(0), 0)
+        ans = self.transmit(req.to_bytes())
+        self.errno = ans.added_status
+        if ans.status != FS100.ERROR_SUCCESS:
+            print("failed acquiring management time, err={}".format(hex(ans.added_status)))
+        else:
+            time['start'] = ans.data[0:16].decode('utf-8')
+            time['elapse'] = ans.data[16:28].decode('utf-8')
         return ans.status
 
 
@@ -739,12 +802,15 @@ if __name__ == '__main__':
     var_d = FS100.Variable(FS100.VarType.DOUBLE, 2, -7654321)
     var_r = FS100.Variable(FS100.VarType.REAL, 3, -123.4567)
     var_s = FS100.Variable(FS100.VarType.STRING, 4, 'Hello, World!')
+    var_reg = FS100.Variable(FS100.VarType.REGISTER, 0, 0xabcd)
+    var_io = FS100.Variable(FS100.VarType.IO, 3003)
     
     ret = robot.write_variable(var_b)
     ret |= robot.write_variable(var_i)
     ret |= robot.write_variable(var_d)
     ret |= robot.write_variable(var_r)
     ret |= robot.write_variable(var_s)
+    ret |= robot.write_variable(var_reg)
     if ret != FS100.ERROR_SUCCESS:
         print("failed writing variables!")
         
@@ -753,9 +819,25 @@ if __name__ == '__main__':
     ret |= robot.read_variable(var_d)
     ret |= robot.read_variable(var_r)
     ret |= robot.read_variable(var_s)
+    ret |= robot.read_variable(var_reg)
+    ret |= robot.read_variable(var_io)
     if ret != FS100.ERROR_SUCCESS:
         print("failed reading variables!")
     else:
-        print(var_b.val, var_i.val, var_d.val, var_r.val, var_s.val)
+        print(var_b.val, var_i.val, var_d.val, var_r.val, var_s.val, var_reg.val, var_io.val)
+    '''
+    # system info acquiring
+    '''
+    robot = FS100('10.0.0.2')
+    info = {}
+    if FS100.ERROR_SUCCESS == robot.acquire_system_info(FS100.SystemInfoType.R1, info):
+        print(info)
+    '''
+    # management time acquiring
+    '''
+    robot = FS100('10.0.0.2')
+    time = {}
+    if FS100.ERROR_SUCCESS == robot.acquire_management_time(FS100.ManagementTimeType.SERVO_POWER_ON_R1, time):
+        print(time)
     '''
     pass
