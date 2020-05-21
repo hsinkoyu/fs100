@@ -427,7 +427,7 @@ class FS100:
         data = job_name.encode(encoding='utf-8')
         if len(data) > 32:
             raise ValueError('Job name is too long')
-        data += bytearray([32 - len(data)])
+        data += bytearray(32 - len(data))
         data += struct.pack('<I', line_num)
         req = FS100ReqPacket(FS100PacketHeader.HEADER_DIVISION_ROBOT_CONTROL, 0, 0x87, 1, 0, 0x02, data, len(data))
         ans = self.transmit(req.to_bytes())
