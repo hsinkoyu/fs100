@@ -18,6 +18,7 @@
 #    Hsinko Yu <hsinkoyu@fih-foxconn.com>
 #
 
+import copy
 import ntpath
 import os
 import socket
@@ -587,8 +588,7 @@ class FS100:
         DOUBLE = 0x7c  # 4 bytes
         REAL = 0x7d  # 4 bytes
         STRING = 0x7e  # max. 16 bytes
-        #ROBOT_POSITION = 0x7f
-        #BASE_POSITION = 0x80
+        ROBOT_POSITION = 0x7f
 
     class Variable:
         def __init__(self, type, num, val=None):
@@ -611,6 +611,20 @@ class FS100:
                 self.val = struct.unpack('<f', raw_bytes[0:4])[0]
             elif self.type == FS100.VarType.STRING:
                 self.val = raw_bytes.decode('utf-8')
+            elif self.type == FS100.VarType.ROBOT_POSITION:
+                if self.val is None: self.val = {}
+                self.val['data_type'] = struct.unpack('<I', raw_bytes[0:4])[0]
+                self.val['form'] = struct.unpack('<I', raw_bytes[4:8])[0]
+                self.val['tool_no'] = struct.unpack('<I', raw_bytes[8:12])[0]
+                self.val['user_coor_no'] = struct.unpack('<I', raw_bytes[12:16])[0]
+                self.val['extended_form'] = struct.unpack('<I', raw_bytes[16:20])[0]
+                self.val['pos'] = (struct.unpack('<i', raw_bytes[20:24])[0],
+                                   struct.unpack('<i', raw_bytes[24:28])[0],
+                                   struct.unpack('<i', raw_bytes[28:32])[0],
+                                   struct.unpack('<i', raw_bytes[32:36])[0],
+                                   struct.unpack('<i', raw_bytes[36:40])[0],
+                                   struct.unpack('<i', raw_bytes[40:44])[0],
+                                   struct.unpack('<i', raw_bytes[44:48])[0])
 
         def val_to_bytes(self):
             ret = None
@@ -628,10 +642,24 @@ class FS100:
                 ret = struct.pack('<f', self.val)
             elif self.type == FS100.VarType.STRING:
                 ret = self.val.encode(encoding='utf-8')
+            elif self.type == FS100.VarType.ROBOT_POSITION:
+                pos = self.val['pos']
+                ret = struct.pack('<I', self.val['data_type'])
+                ret += struct.pack('<I', self.val['form'])
+                ret += struct.pack('<I', self.val['tool_no'])
+                ret += struct.pack('<I', self.val['user_coor_no'])
+                ret += struct.pack('<I', self.val['extended_form'])
+                ret += struct.pack('<iiiiiii', pos[0], pos[1], pos[2], pos[3], pos[4], pos[5], pos[6])
             return ret
 
     def read_variable(self, var):
-        req = FS100ReqPacket(FS100PacketHeader.HEADER_DIVISION_ROBOT_CONTROL, 0, var.type, var.num, 1, 0x0e,
+        attr = 1
+        service = 0x0e
+        if var.type == FS100.VarType.ROBOT_POSITION:
+            # get all attributes
+            attr = 0
+            service = 0x01
+        req = FS100ReqPacket(FS100PacketHeader.HEADER_DIVISION_ROBOT_CONTROL, 0, var.type, var.num, attr, service,
                              bytearray(0), 0)
         ans = self.transmit(req.to_bytes())
         self.errno = ans.added_status
@@ -642,8 +670,27 @@ class FS100:
         return ans.status
 
     def write_variable(self, var):
+        attr = 1
+        service = 0x10
+        if var.type == FS100.VarType.ROBOT_POSITION:
+            # set all attributes
+            attr = 0
+            service = 0x02
+            # for P variable, get current value as the default before writing
+            current = copy.deepcopy(var)
+            err = self.read_variable(current)
+            if err == FS100.ERROR_SUCCESS:
+                var.val['data_type'] = var.val.get('data_type', current.val['data_type'])
+                var.val['form'] = var.val.get('form', current.val['form'])
+                var.val['tool_no'] = var.val.get('tool_no', current.val['tool_no'])
+                var.val['user_coor_no'] = var.val.get('user_coor_no', current.val['user_coor_no'])
+                var.val['extended_form'] = var.val.get('extended_form', current.val['extended_form'])
+                var.val['pos'] = var.val.get('pos', current.val['pos'])
+            else:
+                print("failed to read P variable before writing it, err={}".format(hex(self.errno)))
+                return err
         data = var.val_to_bytes()
-        req = FS100ReqPacket(FS100PacketHeader.HEADER_DIVISION_ROBOT_CONTROL, 0, var.type, var.num, 1, 0x10,
+        req = FS100ReqPacket(FS100PacketHeader.HEADER_DIVISION_ROBOT_CONTROL, 0, var.type, var.num, attr, service,
                              data, len(data))
         ans = self.transmit(req.to_bytes())
         self.errno = ans.added_status
@@ -804,16 +851,18 @@ if __name__ == '__main__':
     var_s = FS100.Variable(FS100.VarType.STRING, 4, 'Hello, World!')
     var_reg = FS100.Variable(FS100.VarType.REGISTER, 0, 0xabcd)
     var_io = FS100.Variable(FS100.VarType.IO, 3003)
-    
+    var_p = FS100.Variable(FS100.VarType.ROBOT_POSITION, 0, {'tool_no': 1})
+
     ret = robot.write_variable(var_b)
     ret |= robot.write_variable(var_i)
     ret |= robot.write_variable(var_d)
     ret |= robot.write_variable(var_r)
     ret |= robot.write_variable(var_s)
     ret |= robot.write_variable(var_reg)
+    ret |= robot.write_variable(var_p)
     if ret != FS100.ERROR_SUCCESS:
         print("failed writing variables!")
-        
+
     ret = robot.read_variable(var_b)
     ret |= robot.read_variable(var_i)
     ret |= robot.read_variable(var_d)
@@ -821,10 +870,11 @@ if __name__ == '__main__':
     ret |= robot.read_variable(var_s)
     ret |= robot.read_variable(var_reg)
     ret |= robot.read_variable(var_io)
+    ret |= robot.read_variable(var_p)
     if ret != FS100.ERROR_SUCCESS:
         print("failed reading variables!")
     else:
-        print(var_b.val, var_i.val, var_d.val, var_r.val, var_s.val, var_reg.val, var_io.val)
+        print(var_b.val, var_i.val, var_d.val, var_r.val, var_s.val, var_reg.val, var_io.val, var_p.val)
     '''
     # system info acquiring
     '''
