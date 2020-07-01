@@ -148,6 +148,11 @@ class FS100:
     POWER_SWITCH_ON = 1
     POWER_SWITCH_OFF = 2
 
+    # cycle selection command
+    CYCLE_TYPE_STEP = 1
+    CYCLE_TYPE_ONE_CYCLE = 2
+    CYCLE_TYPE_CONTINUOUS = 3
+
     # move command
     MOVE_TYPE_JOINT_ABSOLUTE_POS = 1
     MOVE_TYPE_LINEAR_ABSOLUTE_POS = 2
@@ -247,6 +252,15 @@ class FS100:
         self.errno = ans.added_status
         if ans.status != FS100.ERROR_SUCCESS:
             print("failed switching power supply, err={}".format(hex(ans.added_status)))
+        return ans.status
+
+    def select_cycle(self, cycle_type):
+        req = FS100ReqPacket(FS100PacketHeader.HEADER_DIVISION_ROBOT_CONTROL, 0, 0x84, 2, 0x01, 0x10,
+                             struct.pack('<I', cycle_type), 4)
+        ans = self.transmit(req.to_bytes())
+        self.errno = ans.added_status
+        if ans.status != FS100.ERROR_SUCCESS:
+            print("failed to select cycle, err={}".format(hex(ans.added_status)))
         return ans.status
 
     def traveller(self, bag, stops, cb_status):
