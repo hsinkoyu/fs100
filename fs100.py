@@ -690,6 +690,8 @@ class FS100:
             # set all attributes
             attr = 0
             service = 0x02
+            # comment out below if you prefer 'update' p variable
+            '''
             # for P variable, get current value as the default before writing
             current = copy.deepcopy(var)
             err = self.read_variable(current)
@@ -703,6 +705,7 @@ class FS100:
             else:
                 print("failed to read P variable before writing it, err={}".format(hex(self.errno)))
                 return err
+            '''
         data = var.val_to_bytes()
         req = FS100ReqPacket(FS100PacketHeader.HEADER_DIVISION_ROBOT_CONTROL, 0, var.type, var.num, attr, service,
                              data, len(data))
