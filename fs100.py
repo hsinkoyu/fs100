@@ -171,8 +171,7 @@ class FS100:
 
     # threading safe lock
     transmission_lock = threading.Lock()
-    # TODO: no robot control command during file control transmissions
-    file_control_lock = threading.Lock()
+    file_control_lock = threading.RLock()
 
     def __init__(self, ip, timeout=0.8):
         self.ip = ip
@@ -210,6 +209,10 @@ class FS100:
         return p
 
     def transmit(self, packet, direction=TRANSMISSION_SEND_AND_RECV):
+        # file_control_lock is a reentrant lock. Owning thread may acquire it again without blocking.
+        # This prevents sending robot control command during file control transmission.
+        FS100.file_control_lock.acquire()
+
         FS100.transmission_lock.acquire()
         if self.connected():
             to_disc = False
@@ -243,6 +246,7 @@ class FS100:
             self.disconnect()
 
         FS100.transmission_lock.release()
+        FS100.file_control_lock.release()
         return ans
 
     def switch_power(self, power_type, switch):
@@ -462,7 +466,7 @@ class FS100:
         if ans.status != FS100.ERROR_SUCCESS:
             print("failed deleting the file, err={}".format(hex(ans.added_status)))
         self.disconnect()
-        self.file_control_lock.releas()
+        self.file_control_lock.release()
         return ans.status
 
     # get file list
