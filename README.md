@@ -1,4 +1,30 @@
-# fs100
-Python implementation for YASKAWA FS100 High Speed Ethernet Server Functions
+# YASKAWA FS100 High Speed Ethernet Server Functions
+  This class implements most of YASKAWA FS100 High Speed Ethernet Server Functions.  
+  https://www.motoman.com/getmedia/16B5CD92-BD0B-4DE0-9DC9-B71D0B6FE264/160766-1CD.pdf.aspx?ext=.pdf
 
-APIs sample code are in the bottom of the file.
+  Attributes:  
+      ip (str): IP address of the controller  
+      timeout (int, optional): Communication timeout value in second between PC and Controller. Defaults to 0.8.  
+      errno (int): Number of last error  
+
+  Methods:  
+      switch_power(): Turn on/off the power supply  
+      move(): Make robot move to one or more specified position(s)  
+      stop(): Stop moving robot  
+      one_move(): Make Robot move to the specified position  
+      select_cycle(): Select the way a job in pendant plays  
+      select_job(): Select a job in pendant for later playing  
+      play_job(): Start playing a job in pendant  
+      read_position(): Read the robot position  
+      read_variable(): Read a robot variable  
+      write_variable(): Write a robot variable  
+      get_status(): Retrieve various status of the robot  
+      get_last_alarm(): Retrieve info of the latest alarm  
+      reset_alarm(): To reset alarms or cancel errors  
+      acquire_system_info(): Acquire system information  
+      acquire_management_time(): Acquire usage time of an action  
+      get_file_list(): Retrieve list of files ended with `extension` in pendant  
+      send_file(): Send a local file to pendant  
+      recv_file(): Receive a file from pendant  
+      delete_file(): Delete a file in pendant  
+      
