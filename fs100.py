@@ -2,7 +2,7 @@
 #
 # YASKAWA FS100 High Speed Ethernet Server Functions
 #
-# Copyright (C) 2019 FIH Mobile Limited
+# Copyright (C) 2019, 2020 FIH Mobile Limited
 #
 # This program is free software; you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -69,7 +69,6 @@ class FS100PacketHeader:
         return h
 
 
-# request packet
 class FS100ReqPacket(FS100PacketHeader):
 
     def __init__(self, division, req_id, cmd_no, inst, attr, service, data, data_size):
@@ -99,7 +98,6 @@ class FS100ReqPacket(FS100PacketHeader):
                               data_size)
 
 
-# answer packet
 class FS100AnsPacket(FS100PacketHeader):
 
     def __init__(self, packet):
@@ -124,6 +122,39 @@ class FS100AnsPacket(FS100PacketHeader):
 
 
 class FS100:
+    """YASKAWA FS100 High Speed Ethernet Server Functions
+
+    This class implements most of YASKAWA FS100 High Speed Ethernet Server Functions.
+    https://www.motoman.com/getmedia/16B5CD92-BD0B-4DE0-9DC9-B71D0B6FE264/160766-1CD.pdf.aspx?ext=.pdf
+
+    Attributes:
+        ip (str): IP address of the controller
+        timeout (int, optional): Communication timeout value in second between PC and Controller.
+            Defaults to 0.8.
+        errno (int): Number of last error
+
+    Methods:
+        __init__(): Constructor
+        switch_power(): Turn on/off the power supply
+        move(): Make robot move to one or more specified position(s)
+        stop(): Stop moving robot
+        one_move(): Make Robot move to the specified position
+        select_cycle(): Select the way a job in pendant plays
+        select_job(): Select a job in pendant for later playing
+        play_job(): Start playing a job in pendant
+        read_position(): Read the robot position
+        read_variable(): Read a robot variable
+        write_variable(): Write a robot variable
+        get_status(): Retrieve various status of the robot
+        get_last_alarm(): Retrieve info of the latest alarm
+        reset_alarm(): To reset alarms or cancel errors
+        acquire_system_info(): Acquire system information
+        acquire_management_time(): Acquire usage time of an action
+        get_file_list(): Retrieve list of files ended with `extension` in pendant
+        send_file(): Send a local file to pendant
+        recv_file(): Receive a file from pendant
+        delete_file(): Delete a file in pendant
+    """
     DEBUG = False
 
     UDP_PORT_ROBOT_CONTROL = 10040
@@ -247,6 +278,21 @@ class FS100:
         return ans
 
     def switch_power(self, power_type, switch):
+        """Turn on/off the power supply
+
+        Args:
+            power_type (int): Type of power supply. One of following:
+                FS100.POWER_TYPE_HOLD,
+                FS100.POWER_TYPE_SERVO,
+                FS100.POWER_TYPE_HLOCK
+            switch (int): Type of switch. One of following:
+                FS100.POWER_SWITCH_ON,
+                FS100.POWER_SWITCH_OFF
+
+        Returns:
+            int: FS100.ERROR_SUCCESS for success, otherwise failure and errno attribute
+                indicates the error code.
+        """
         req = FS100ReqPacket(FS100PacketHeader.HEADER_DIVISION_ROBOT_CONTROL, 0, 0x83, power_type, 0x01, 0x10,
                              struct.pack('<I', switch), 4)
         ans = self.transmit(req.to_bytes())
@@ -256,6 +302,18 @@ class FS100:
         return ans.status
 
     def select_cycle(self, cycle_type):
+        """Select the way a job in pendant plays
+
+        Args:
+            cycle_type (int): Type of playing. One of following:
+                FS100.CYCLE_TYPE_STEP,
+                FS100.CYCLE_TYPE_ONE_CYCLE,
+                FS100.CYCLE_TYPE_CONTINUOUS
+
+        Returns:
+            int: FS100.ERROR_SUCCESS for success, otherwise failure and errno attribute
+                indicates the error code.
+        """
         req = FS100ReqPacket(FS100PacketHeader.HEADER_DIVISION_ROBOT_CONTROL, 0, 0x84, 2, 0x01, 0x10,
                              struct.pack('<I', cycle_type), 4)
         ans = self.transmit(req.to_bytes())
@@ -303,26 +361,53 @@ class FS100:
 
         cb_status(self, status)
 
-    # travel in cartesian coordinate
+    def travel_status_cb(self, vehicle, status):
+        now = datetime.now().strftime('%H:%M:%S.%f')[:-3]
+        if status == FS100.TRAVEL_STATUS_START:
+            print("[{}] start travelling".format(now))
+        elif status == FS100.TRAVEL_STATUS_END:
+            print("[{}] end travelling".format(now))
+        elif status == FS100.TRAVEL_STATUS_ERROR:
+            print("[{}] failed travelling, err={}".format(now, hex(vehicle.errno)))
+        else:
+            print("[{}] travelling at stop #{}".format(now, status))
+
     def move(self, cb_status, move_type, coordinate, speed_class, speed, pos, form=0, extended_form=0, robot_no=1,
              station_no=0, tool_no=0, user_coor_no=0, wait=False):
-        """
-        :param cb_status: travelling status callback
-        :param move_type:
-        :param coordinate:
-        :param speed_class:
-        :param speed: in 0.01 % for class MOVE_SPEED_CLASS_PERCENT
-                      in 0.1 mm/s for class MOVE_SPEED_CLASS_MILLIMETER
-                      in 0.1 degree/s for MOVE_SPEED_CLASS_DEGREE
-        :param pos: list of tuples (x, y, z, Rx, Ry, Rz, Re). x, y, z are in 0.000001 m, whereas Rx, Ry, Rz, Re are in 0.0001 degree
-        :param form: see documentation
-        :param extended_form: see documentation
-        :param robot_no:
-        :param station_no:
-        :param tool_no:
-        :param user_coor_no:
-        :param wait:
-        :return:
+        """Make robot move to one or more specified position(s)
+
+        Args:
+            cb_status (cb): Position reached callback. If None, default callback will be used.
+            move_type (int): Type of move path. One of following:
+                FS100.MOVE_TYPE_JOINT_ABSOLUTE_POS,
+                FS100.MOVE_TYPE_LINEAR_ABSOLUTE_POS,
+                FS100.MOVE_TYPE_LINEAR_INCREMENTAL_POS
+            coordinate (int): Coordinate system. One of following:
+                FS100.MOVE_COORDINATE_SYSTEM_BASE,
+                FS100.MOVE_COORDINATE_SYSTEM_ROBOT,
+                FS100.MOVE_COORDINATE_SYSTEM_USER,
+                FS100.MOVE_COORDINATE_SYSTEM_TOOL
+            speed_class (int): Type of move speed. One of following:
+                FS100.MOVE_SPEED_CLASS_PERCENT,
+                FS100.MOVE_SPEED_CLASS_MILLIMETER,
+                FS100.MOVE_SPEED_CLASS_DEGREE
+            speed (int): Move speed.
+                in 0.01 % for speed type FS100.MOVE_SPEED_CLASS_PERCENT,
+                in 0.1 mm/s for speed type FS100.MOVE_SPEED_CLASS_MILLIMETER,
+                in 0.1 degree/s for speed type FS100.MOVE_SPEED_CLASS_DEGREE
+            pos (list): List of tuple of position (x, y, z, Rx, Ry, Rz, Re). x, y, z are in 0.000001 m,
+                whereas Rx, Ry, Rz, Re are in 0.0001 degree.
+            form (int, optional): Robot pose. Defaults to 0.
+            extended_form (int, optional): Robot extended pose. Defaults to 0.
+            robot_no (int, optional): Robot number (1 to 2). Defaults to 1.
+            station_no (int, optional): Station number. Defaults to 0.
+            tool_no (int, optional): Tool number (0 to 63). Defaults to 0.
+            user_coor_no (int, optional): User coordinate number (0 to 63). Defaults to 0.
+            wait (bool, optional): True to block function until move ends. Defaults to False.
+
+        Returns:
+            int (`wait` is True): Error code
+            void (`wait` is False):
         """
         data = struct.pack('<I', robot_no)
         data += struct.pack('<I', station_no)
@@ -337,6 +422,7 @@ class FS100:
         data += struct.pack('<I', user_coor_no)
         data += bytearray(36)
 
+        if cb_status is None: cb_status = self.travel_status_cb
         bag = FS100ReqPacket(FS100PacketHeader.HEADER_DIVISION_ROBOT_CONTROL, 0, 0x8a, move_type, 0x01, 0x02, data,
                              len(data))
         self.traveller_thread = threading.Thread(target=self.traveller, args=(bag, pos, cb_status))
@@ -349,14 +435,48 @@ class FS100:
             return
 
     def stop(self):
+        """Stop moving robot
+        """
         if self.traveller_thread is not None and self.traveller_thread.is_alive():
             self.stop_travelling = True
             self.traveller_thread.join()
             self.stop_travelling = False
 
-    # move to one place, no status reported
     def one_move(self, move_type, coordinate, speed_class, speed, pos, form=0, extended_form=0, robot_no=1,
                  station_no=0, tool_no=0, user_coor_no=0):
+        """Make Robot move to the specified position
+
+        Args:
+            move_type (int): Type of move path. One of following:
+                FS100.MOVE_TYPE_JOINT_ABSOLUTE_POS,
+                FS100.MOVE_TYPE_LINEAR_ABSOLUTE_POS,
+                FS100.MOVE_TYPE_LINEAR_INCREMENTAL_POS
+            coordinate (int): Coordinate system. One of following:
+                FS100.MOVE_COORDINATE_SYSTEM_BASE,
+                FS100.MOVE_COORDINATE_SYSTEM_ROBOT,
+                FS100.MOVE_COORDINATE_SYSTEM_USER,
+                FS100.MOVE_COORDINATE_SYSTEM_TOOL
+            speed_class (int): Type of move speed. One of following:
+                FS100.MOVE_SPEED_CLASS_PERCENT,
+                FS100.MOVE_SPEED_CLASS_MILLIMETER,
+                FS100.MOVE_SPEED_CLASS_DEGREE
+            speed (int): Move speed.
+                in 0.01 % for speed type FS100.MOVE_SPEED_CLASS_PERCENT,
+                in 0.1 mm/s for speed type FS100.MOVE_SPEED_CLASS_MILLIMETER,
+                in 0.1 degree/s for speed type FS100.MOVE_SPEED_CLASS_DEGREE
+            pos (tuple): Target position in tuple (x, y, z, Rx, Ry, Rz, Re). x, y, z are in 0.000001 m,
+                whereas Rx, Ry, Rz, Re are in 0.0001 degree
+            form (int, optional): Robot pose. Defaults to 0.
+            extended_form (int, optional): Robot extended pose. Defaults to 0.
+            robot_no (int, optional): Robot number (1 to 2). Defaults to 1.
+            station_no (int, optional): Station number. Defaults to 0.
+            tool_no (int, optional): Tool number (0 to 63). Defaults to 0.
+            user_coor_no (int, optional): User coordinate number (0 to 63). Defaults to 0.
+
+        Returns:
+            int: FS100.ERROR_SUCCESS for success, otherwise failure and errno attribute
+                indicates the error code.
+        """
         data = struct.pack('<I', robot_no)
         data += struct.pack('<I', station_no)
         data += struct.pack('<I', speed_class)
@@ -379,6 +499,15 @@ class FS100:
         return ans.status
 
     def get_last_alarm(self, alarm):
+        """Retrieve info of the latest alarm
+
+        Args:
+            alarm (dict): Where the retrieved info is written to
+
+        Returns:
+            int: FS100.ERROR_SUCCESS for success, otherwise failure and errno attribute
+                indicates the error code.
+        """
         req = FS100ReqPacket(FS100PacketHeader.HEADER_DIVISION_ROBOT_CONTROL, 0, 0x70, 1, 0, 0x01, bytearray(0), 0)
         ans = self.transmit(req.to_bytes())
         self.errno = ans.added_status
@@ -392,8 +521,18 @@ class FS100:
             alarm['name'] = ans.data[28:60].decode('utf-8')
         return ans.status
 
-    # reset alarms or cancel errors
     def reset_alarm(self, alarm_type):
+        """To reset alarms or cancel errors
+
+        Args:
+            alarm_type (int): Type of alarm. One of following:
+                FS100.RESET_ALARM_TYPE_ALARM,
+                FS100.RESET_ALARM_TYPE_ERROR
+
+        Returns:
+            int: FS100.ERROR_SUCCESS for success, otherwise failure and errno attribute
+                indicates the error code.
+        """
         req = FS100ReqPacket(FS100PacketHeader.HEADER_DIVISION_ROBOT_CONTROL, 0, 0x82, alarm_type, 1, 0x10,
                              struct.pack('<I', 1), 4)
         ans = self.transmit(req.to_bytes())
@@ -402,8 +541,16 @@ class FS100:
             print("failed resetting alarms or cancelling errors, err={}".format(hex(ans.added_status)))
         return ans.status
 
-    # get status
     def get_status(self, status):
+        """Retrieve various status of the robot
+
+        Args:
+            status (dict): Where the retrieved status is written to
+
+        Returns:
+            int: FS100.ERROR_SUCCESS for success, otherwise failure and errno attribute
+                indicates the error code.
+        """
         req = FS100ReqPacket(FS100PacketHeader.HEADER_DIVISION_ROBOT_CONTROL, 0, 0x72, 1, 0, 0x01, bytearray(0), 0)
         ans = self.transmit(req.to_bytes())
         self.errno = ans.added_status
@@ -428,8 +575,16 @@ class FS100:
             status['servo_on'] = bool(data_2 & 0x40)
         return ans.status
 
-    # play job
     def play_job(self):
+        """Start playing a job in pendant
+
+        Note:
+            select_job() should be performed before this method.
+
+        Returns:
+            int: FS100.ERROR_SUCCESS for success, otherwise failure and errno attribute
+                indicates the error code.
+        """
         req = FS100ReqPacket(FS100PacketHeader.HEADER_DIVISION_ROBOT_CONTROL, 0, 0x86, 1, 1, 0x10,
                              struct.pack('<I', 1), 4)
         ans = self.transmit(req.to_bytes())
@@ -438,8 +593,20 @@ class FS100:
             print("failed playing job, err={}".format(hex(ans.added_status)))
         return ans.status
 
-    # select job
-    def select_job(self, job_name, line_num):
+    def select_job(self, job_name, line_num=0):
+        """Select a job in pendant for later playing
+
+        Args:
+            job_name (str): Name of the job file
+            line_num (int, optional): The beginning line number when playing. Defaults to 0.
+
+        Raises:
+            ValueError: Length of the job name exceeds the maximum 32 characters.
+
+        Returns:
+            int: FS100.ERROR_SUCCESS for success, otherwise failure and errno attribute
+                indicates the error code.
+        """
         data = job_name.encode(encoding='utf-8')
         if len(data) > 32:
             raise ValueError('Job name is too long')
@@ -452,8 +619,16 @@ class FS100:
             print("failed selecting the job, err={}".format(hex(ans.added_status)))
         return ans.status
 
-    # delete the file
     def delete_file(self, file_name):
+        """Delete a file in pendant
+
+        Args:
+            file_name (str): Name of the file to be deleted
+
+        Returns:
+            int: FS100.ERROR_SUCCESS for success, otherwise failure and errno attribute
+                indicates the error code.
+        """
         self.transmission_lock.acquire()
         self.connect(FS100.UDP_PORT_FILE_CONTROL)
         data = file_name.encode(encoding='utf-8')
@@ -466,8 +641,17 @@ class FS100:
         self.transmission_lock.release()
         return ans.status
 
-    # get file list
     def get_file_list(self, extension, list):
+        """Retrieve list of files ended with `extension` in pendant
+
+        Args:
+            extension (str): Should be '*.JBI', '*.DAT', '*.CND', '*.PRM', '*.SYS' or '*.LST'
+            list (list): Where to store the retrieved list
+
+        Returns:
+            int: FS100.ERROR_SUCCESS for success, otherwise failure and errno attribute
+                indicates the error code.
+        """
         self.transmission_lock.acquire()
         self.connect(FS100.UDP_PORT_FILE_CONTROL)
         raw = ''
@@ -496,6 +680,18 @@ class FS100:
         return ans.status
 
     def send_file(self, filename):
+        """Send a local file to pendant
+
+        Args:
+            filename (str): Path of the local file
+
+        Raises:
+            ValueError: Empty content of the local file
+
+        Returns:
+            int: FS100.ERROR_SUCCESS for success, otherwise failure and errno attribute
+                indicates the error code.
+        """
         try:
             with open(filename, 'rb') as f:
                 context = f.read()
@@ -538,6 +734,16 @@ class FS100:
         return ans.status
 
     def recv_file(self, filename, local_dir):
+        """Receive a file from pendant
+
+        Args:
+            filename (str): Name of the file in pendant
+            local_dir (str): Where in local to save the file 
+
+        Returns:
+            int: FS100.ERROR_SUCCESS for success, otherwise failure and errno attribute
+                indicates the error code.
+        """
         if not os.path.isdir(local_dir):
             print("directory not found: '{}'".format(local_dir))
             self.errno = 0xe2b3
@@ -574,6 +780,16 @@ class FS100:
         return ans.status
 
     def read_position(self, pos_info, robot_no=1):
+        """Read the robot position
+
+        Args:
+            pos_info (dict): Where the robot position data is stored
+            robot_no (int, optional): Robot number. Defaults to 1.
+
+        Returns:
+            int: FS100.ERROR_SUCCESS for success, otherwise failure and errno attribute
+                indicates the error code.
+        """
         req = FS100ReqPacket(FS100PacketHeader.HEADER_DIVISION_ROBOT_CONTROL, 0, 0x75, 100 + robot_no, 0, 0x01,
                              bytearray(0), 0)
         ans = self.transmit(req.to_bytes())
@@ -606,6 +822,13 @@ class FS100:
         ROBOT_POSITION = 0x7f
 
     class Variable:
+        """FS100 Variable
+
+        Attributes:
+            type (FS100.VarType): Variable type
+            num (int): Variable number
+            val (*, optional): Variable value
+        """
         def __init__(self, type, num, val=None):
             self.type = type
             self.num = num
@@ -668,6 +891,24 @@ class FS100:
             return ret
 
     def read_variable(self, var):
+        """Read a robot variable
+
+        Args:
+            var (FS100.Variable): The variable being read
+
+        Note:
+            Value of the variable is stored in `val` attribute of var.
+
+        Examples:
+            >>> robot = FS100('10.0.0.2')
+            >>> var_b0 = FS100.Variable(FS100.VarType.BYTE, 0)
+            >>> robot.read_variable(var_b0)
+            >>> print("var_b0={}".format(var_b0.val))
+
+        Returns:
+            int: FS100.ERROR_SUCCESS for success, otherwise failure and errno attribute
+                indicates the error code.
+        """
         attr = 1
         service = 0x0e
         if var.type == FS100.VarType.ROBOT_POSITION:
@@ -685,6 +926,23 @@ class FS100:
         return ans.status
 
     def write_variable(self, var):
+        """Write a robot variable
+
+        Args:
+            var (FS100.Variable): The variable being written
+
+        Note:
+            Value for the variable is specified in `val` attribute.
+
+        Examples:
+            >>> robot = FS100('10.0.0.2')
+            >>> var_s1 = FS100.Variable(FS100.VarType.STRING, 1, 'Hello, World!')
+            >>> robot.write_variable(var_s1)
+
+        Returns:
+            int: FS100.ERROR_SUCCESS for success, otherwise failure and errno attribute
+                indicates the error code.
+        """
         attr = 1
         service = 0x10
         if var.type == FS100.VarType.ROBOT_POSITION:
@@ -725,6 +983,16 @@ class FS100:
         APPLICATION = 101
 
     def acquire_system_info(self, type, info):
+        """Acquire system information
+
+        Args:
+            type (FS100.SystemInfoType): Type of system
+            info (dict): Where acquired information is stored
+
+        Returns:
+            int: FS100.ERROR_SUCCESS for success, otherwise failure and errno attribute
+                indicates the error code.
+        """
         req = FS100ReqPacket(FS100PacketHeader.HEADER_DIVISION_ROBOT_CONTROL, 0, 0x89, type, 0, 0x01, bytearray(0), 0)
         ans = self.transmit(req.to_bytes())
         self.errno = ans.added_status
@@ -759,6 +1027,16 @@ class FS100:
         OPERATION = 301
 
     def acquire_management_time(self, type, time):
+        """Acquire usage time of an action
+
+        Args:
+            type (FS100.ManagementTimeType): Type of action
+            time (dict): Where acquired usage time is stored
+
+        Returns:
+            int: FS100.ERROR_SUCCESS for success, otherwise failure and errno attribute
+                indicates the error code.
+        """
         req = FS100ReqPacket(FS100PacketHeader.HEADER_DIVISION_ROBOT_CONTROL, 0, 0x88, type, 0, 0x01, bytearray(0), 0)
         ans = self.transmit(req.to_bytes())
         self.errno = ans.added_status
@@ -768,18 +1046,6 @@ class FS100:
             time['start'] = ans.data[0:16].decode('utf-8')
             time['elapse'] = ans.data[16:28].decode('utf-8')
         return ans.status
-
-
-def travel_status(vehicle, status):
-    now = datetime.now().strftime('%H:%M:%S.%f')[:-3]
-    if status == FS100.TRAVEL_STATUS_START:
-        print("[{}] start travelling".format(now))
-    elif status == FS100.TRAVEL_STATUS_END:
-        print("[{}] end travelling".format(now))
-    elif status == FS100.TRAVEL_STATUS_ERROR:
-        print("[{}] failed travelling, err={}".format(now, hex(vehicle.errno)))
-    else:
-        print("[{}] travelling at stop #{}".format(now, status))
 
 
 if __name__ == '__main__':
@@ -799,11 +1065,11 @@ if __name__ == '__main__':
     if FS100.ERROR_SUCCESS == robot.get_status(status):
         if not status['servo_on']:
             robot.switch_power(FS100.POWER_TYPE_SERVO, FS100.POWER_SWITCH_ON)
-    stops = [(600, -254, 22, 180, 0, 0, 0),
-             (320, -40, 165, 180, 0, 0, 0),
-             (600, -254, 22, 180, 0, 0, 0),
-             (320, -40, 165, 180, 0, 0, 0)]
-    robot.move(travel_status, FS100.MOVE_TYPE_JOINT_ABSOLUTE_POS, FS100.MOVE_COORDINATE_SYSTEM_ROBOT,
+    stops = [(600000, -254000, 22000, 1800000, 0, 0, 0),
+             (320000, -40000, 165000, 1800000, 0, 0, 0),
+             (600000, -254000, 22000, 1800000, 0, 0, 0),
+             (320000, -40000, 165000, 1800000, 0, 0, 0)]
+    robot.move(None, FS100.MOVE_TYPE_JOINT_ABSOLUTE_POS, FS100.MOVE_COORDINATE_SYSTEM_ROBOT,
                FS100.MOVE_SPEED_CLASS_PERCENT, 250, stops)
     '''
     # get last alarm
