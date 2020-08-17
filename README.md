@@ -23,6 +23,7 @@
       reset_alarm(): To reset alarms or cancel errors  
       acquire_system_info(): Acquire system information  
       acquire_management_time(): Acquire usage time of an action  
+      show_text_on_pendant(): Show text on pendant  
       get_file_list(): Retrieve list of files ended with `extension` in pendant  
       send_file(): Send a local file to pendant  
       recv_file(): Receive a file from pendant  

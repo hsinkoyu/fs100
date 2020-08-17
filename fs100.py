@@ -1047,6 +1047,30 @@ class FS100:
             time['elapse'] = ans.data[16:28].decode('utf-8')
         return ans.status
 
+    def show_text_on_pendant(self, text):
+        """Show text on pendant
+
+        Args:
+            text (str): Text to be shown on pendant
+
+        Raises:
+            ValueError: Length of the text exceeds the maximum 30 characters.
+
+        Returns:
+            int: FS100.ERROR_SUCCESS for success, otherwise failure and errno attribute
+                indicates the error code.
+        """
+        data = text.encode(encoding='utf-8')
+        if len(data) > 30:
+            raise ValueError('Text is too long')
+        data += bytearray(32 - len(data))
+        req = FS100ReqPacket(FS100PacketHeader.HEADER_DIVISION_ROBOT_CONTROL, 0, 0x85, 1, 1, 0x10, data, len(data))
+        ans = self.transmit(req.to_bytes())
+        self.errno = ans.added_status
+        if ans.status != FS100.ERROR_SUCCESS:
+            print("failed to show text on pendant, err={}".format(hex(ans.added_status)))
+        return ans.status
+
 
 if __name__ == '__main__':
     # servo on/off
