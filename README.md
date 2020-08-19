@@ -15,10 +15,14 @@
       select_cycle(): Select the way a job in pendant plays  
       select_job(): Select a job in pendant for later playing  
       play_job(): Start playing a job in pendant  
+      read_executing_job_info(): Read the info of executing job  
+      read_axis_name(): Read the name of each axis  
       read_position(): Read the robot position  
+      read_torque(): Read the robot torque data of each axis  
       read_variable(): Read a robot variable  
       write_variable(): Write a robot variable  
       get_status(): Retrieve various status of the robot  
+      read_alarm_info(): Retrieve info of the specified alarm  
       get_last_alarm(): Retrieve info of the latest alarm  
       reset_alarm(): To reset alarms or cancel errors  
       acquire_system_info(): Acquire system information  

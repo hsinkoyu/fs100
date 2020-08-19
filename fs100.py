@@ -142,14 +142,19 @@ class FS100:
         select_cycle(): Select the way a job in pendant plays
         select_job(): Select a job in pendant for later playing
         play_job(): Start playing a job in pendant
+        read_executing_job_info(): Read the info of executing job
+        read_axis_name(): Read the name of each axis
         read_position(): Read the robot position
+        read_torque(): Read the robot torque data of each axis
         read_variable(): Read a robot variable
         write_variable(): Write a robot variable
         get_status(): Retrieve various status of the robot
+        read_alarm_info(): Retrieve info of the specified alarm
         get_last_alarm(): Retrieve info of the latest alarm
         reset_alarm(): To reset alarms or cancel errors
         acquire_system_info(): Acquire system information
         acquire_management_time(): Acquire usage time of an action
+        show_text_on_pendant(): Show text on pendant
         get_file_list(): Retrieve list of files ended with `extension` in pendant
         send_file(): Send a local file to pendant
         recv_file(): Receive a file from pendant
@@ -309,6 +314,10 @@ class FS100:
                 FS100.CYCLE_TYPE_STEP,
                 FS100.CYCLE_TYPE_ONE_CYCLE,
                 FS100.CYCLE_TYPE_CONTINUOUS
+
+        Note:
+            If the robot is in hold, FS100.CYCLE_TYPE_CONTINUOUS can be selected
+            to resume playing.
 
         Returns:
             int: FS100.ERROR_SUCCESS for success, otherwise failure and errno attribute
@@ -517,8 +526,36 @@ class FS100:
             alarm['code'] = struct.unpack('<I', ans.data[0:4])[0]
             alarm['data'] = struct.unpack('<I', ans.data[4:8])[0]
             alarm['type'] = struct.unpack('<I', ans.data[8:12])[0]
-            alarm['time'] = ans.data[12:28].decode('ascii')
-            alarm['name'] = ans.data[28:60].decode('utf-8')
+            alarm['time'] = ans.data[12:28].decode('ascii').rstrip('\x00')
+            alarm['name'] = ans.data[28:60].decode('utf-8').rstrip('\x00')
+        return ans.status
+
+    def read_alarm_info(self, alarm_num, alarm_info):
+        """Retrieve info of the specified alarm
+
+        Args:
+            alarm_num (int): 1 to 100    : Major failure
+                             1001 to 1100: Monitor alarm
+                             2001 to 2100: User alarm (system)
+                             3001 to 3100: User alarm (user)
+                             4001 to 4100: Off line alarm
+            alarm_info (dict): Where the retrieved info is written to
+
+        Returns:
+            int: FS100.ERROR_SUCCESS for success, otherwise failure and errno attribute
+                indicates the error code.
+        """
+        req = FS100ReqPacket(FS100PacketHeader.HEADER_DIVISION_ROBOT_CONTROL, 0, 0x71, alarm_num, 0, 0x01, bytearray(0), 0)
+        ans = self.transmit(req.to_bytes())
+        self.errno = ans.added_status
+        if ans.status != FS100.ERROR_SUCCESS:
+            print("failed to read the alarm info, err={}".format(hex(ans.added_status)))
+        else:
+            alarm_info['code'] = struct.unpack('<I', ans.data[0:4])[0]
+            alarm_info['data'] = struct.unpack('<I', ans.data[4:8])[0]
+            alarm_info['type'] = struct.unpack('<I', ans.data[8:12])[0]
+            alarm_info['time'] = ans.data[12:28].decode('ascii').rstrip('\x00')
+            alarm_info['name'] = ans.data[28:60].decode('utf-8').rstrip('\x00')
         return ans.status
 
     def reset_alarm(self, alarm_type):
@@ -573,6 +610,28 @@ class FS100:
             status['alarming'] = bool(data_2 & 0x10)
             status['error_occurring'] = bool(data_2 & 0x20)
             status['servo_on'] = bool(data_2 & 0x40)
+        return ans.status
+
+    def read_executing_job_info(self, info):
+        """Read the info of executing job
+
+        Args:
+            info (dict): Where the job info is stored
+
+        Returns:
+            int: FS100.ERROR_SUCCESS for success, otherwise failure and errno attribute
+                indicates the error code.
+        """
+        req = FS100ReqPacket(FS100PacketHeader.HEADER_DIVISION_ROBOT_CONTROL, 0, 0x73, 1, 0, 0x01, bytearray(0), 0)
+        ans = self.transmit(req.to_bytes())
+        self.errno = ans.added_status
+        if ans.status != FS100.ERROR_SUCCESS:
+            print("failed to read the info of executing job, err={}".format(hex(ans.added_status)))
+        else:
+            info['job_name'] = ans.data[0:32].decode('utf-8').rstrip('\x00')
+            info['line_num'] = struct.unpack('<I', ans.data[32:36])[0]
+            info['step_num'] = struct.unpack('<I', ans.data[36:40])[0]
+            info['speed_override_value'] = struct.unpack('<I', ans.data[40:44])[0]
         return ans.status
 
     def play_job(self):
@@ -779,6 +838,33 @@ class FS100:
         self.transmission_lock.release()
         return ans.status
 
+    def read_axis_name(self, axis_name, robot_no=1):
+        """Read the name of each axis
+
+        Args:
+            axis_name (dict): Where the name of each axis is stored
+            robot_no (int, optional): Robot number. Defaults to 1.
+
+        Returns:
+            int: FS100.ERROR_SUCCESS for success, otherwise failure and errno attribute
+                indicates the error code.
+        """
+        req = FS100ReqPacket(FS100PacketHeader.HEADER_DIVISION_ROBOT_CONTROL, 0, 0x74, 100 + robot_no, 0, 0x01,
+                             bytearray(0), 0)
+        ans = self.transmit(req.to_bytes())
+        self.errno = ans.added_status
+        if ans.status != FS100.ERROR_SUCCESS:
+            print("failed to read the name of each axis, err={}".format(hex(ans.added_status)))
+        else:
+            axis_name['1st_axis'] = ans.data[0:4].decode('utf-8').rstrip('\x00')
+            axis_name['2nd_axis'] = ans.data[4:8].decode('utf-8').rstrip('\x00')
+            axis_name['3rd_axis'] = ans.data[8:12].decode('utf-8').rstrip('\x00')
+            axis_name['4th_axis'] = ans.data[12:16].decode('utf-8').rstrip('\x00')
+            axis_name['5th_axis'] = ans.data[16:20].decode('utf-8').rstrip('\x00')
+            axis_name['6th_axis'] = ans.data[20:24].decode('utf-8').rstrip('\x00')
+            axis_name['7th_axis'] = ans.data[24:28].decode('utf-8').rstrip('\x00')
+        return ans.status
+
     def read_position(self, pos_info, robot_no=1):
         """Read the robot position
 
@@ -809,6 +895,33 @@ class FS100:
                                struct.unpack('<i', ans.data[36:40])[0],
                                struct.unpack('<i', ans.data[40:44])[0],
                                struct.unpack('<i', ans.data[44:48])[0])
+        return ans.status
+
+    def read_torque(self, torque_data, robot_no=1):
+        """Read the robot torque data of each axis
+
+        Args:
+            torque_data (dict): Where the robot torque data is stored
+            robot_no (int, optional): Robot number. Defaults to 1.
+
+        Returns:
+            int: FS100.ERROR_SUCCESS for success, otherwise failure and errno attribute
+                indicates the error code.
+        """
+        req = FS100ReqPacket(FS100PacketHeader.HEADER_DIVISION_ROBOT_CONTROL, 0, 0x77, robot_no, 0, 0x01,
+                             bytearray(0), 0)
+        ans = self.transmit(req.to_bytes())
+        self.errno = ans.added_status
+        if ans.status != FS100.ERROR_SUCCESS:
+            print("failed to read the torque data, err={}".format(hex(ans.added_status)))
+        else:
+            torque_data['1st_axis'] = struct.unpack('<i', ans.data[0:4])[0]
+            torque_data['2nd_axis'] = struct.unpack('<i', ans.data[4:8])[0]
+            torque_data['3rd_axis'] = struct.unpack('<i', ans.data[8:12])[0]
+            torque_data['4th_axis'] = struct.unpack('<i', ans.data[12:16])[0]
+            torque_data['5th_axis'] = struct.unpack('<i', ans.data[16:20])[0]
+            torque_data['6th_axis'] = struct.unpack('<i', ans.data[20:24])[0]
+            torque_data['7th_axis'] = struct.unpack('<i', ans.data[24:28])[0]
         return ans.status
 
     class VarType(IntEnum):
