@@ -32,4 +32,8 @@
       send_file(): Send a local file to pendant  
       recv_file(): Receive a file from pendant  
       delete_file(): Delete a file in pendant  
-      
+
+# Simple GUI
+![Alt text](doc/screenshot1.png?raw=true "Title")
+
+![Alt text](doc/screenshot2.png?raw=true "Title")
