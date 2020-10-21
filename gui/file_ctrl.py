@@ -232,6 +232,7 @@ class Toplevel1:
         self.Scrolledlistbox1.delete(0, tk.END)
         jobs = []
         if FS100.ERROR_SUCCESS == self.robot.get_file_list('*.JBI', jobs):
+            jobs.sort()
             for j in jobs:
                 self.Scrolledlistbox1.insert(tk.END, j)
 

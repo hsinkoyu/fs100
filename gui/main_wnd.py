@@ -20,6 +20,7 @@ except ImportError:
     py3 = True
 
 import file_ctrl
+import robot_ctrl
 import main_wnd_support
 import pendant
 
@@ -100,6 +101,7 @@ class Toplevel1:
 
         pendant.Toplevel1(self.TNotebook1_t0)
         file_ctrl.Toplevel1(self.TNotebook1_t2)
+        robot_ctrl.Toplevel1(self.TNotebook1_t1)
 
 if __name__ == '__main__':
     vp_start_gui()
