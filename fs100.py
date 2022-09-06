@@ -147,6 +147,7 @@ class FS100:
         read_position(): Read the robot position
         read_torque(): Read the robot torque data of each axis
         read_variable(): Read a robot variable
+        read_variables(): Read multiple robot variable with plural commands
         write_variable(): Write a robot variable
         get_status(): Retrieve various status of the robot
         read_alarm_info(): Retrieve info of the specified alarm
@@ -1079,6 +1080,9 @@ class FS100:
             int: FS100.ERROR_SUCCESS for success, otherwise failure and errno attribute
                 indicates the error code.
         """
+        if FS100.DEBUG:
+            print("FS100._read_consecutive_variables(VarType={}, list={})".format(vars[0].type if len(vars) > 0 else "", [v.num for v in vars]))
+
         attr = 0
         service = 0x33
         
