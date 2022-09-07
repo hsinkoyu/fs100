@@ -1023,6 +1023,9 @@ class FS100:
             int: FS100.ERROR_SUCCESS for success, otherwise failure and errno attribute
                 indicates the error code.
         """
+        if FS100.DEBUG:
+            print("FS100.read_variable(VarType={}, {})".format(var.type, var.num))
+
         attr = 1
         service = 0x0e
         if var.type == FS100.VarType.ROBOT_POSITION:
