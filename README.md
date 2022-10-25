@@ -11,7 +11,8 @@
       switch_power(): Turn on/off the power supply  
       move(): Make robot move to one or more specified position(s)  
       stop(): Stop moving robot  
-      one_move(): Make Robot move to the specified position  
+      mov(): Make robot move to a specified position  
+      pmov(): Make robot move to a specified pulse position  
       select_cycle(): Select the way a job in pendant plays  
       select_job(): Select a job in pendant for later playing  
       play_job(): Start playing a job in pendant  

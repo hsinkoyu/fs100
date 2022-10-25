@@ -410,7 +410,7 @@ class Toplevel1:
     def update_pos_ui(self, event):
         pos_info = {}
         robot_no = 1
-        if FS100.ERROR_SUCCESS == self.robot.read_position(pos_info, robot_no):
+        if FS100.ERROR_SUCCESS == self.robot.read_position(pos_info, 100 + robot_no):
             x, y, z, rx, ry, rz, re = pos_info['pos']
             str = "CURRENT POSITION\n" +\
                   "COORDINATE {:12s} TOOL:{:02d}\n".format('ROBOT', pos_info['tool_no']) +\
@@ -496,8 +496,8 @@ class Toplevel1:
                 self.robot.switch_power(FS100.POWER_TYPE_SERVO, FS100.POWER_SWITCH_ON)
 
         self.pos_updater = threading.Thread(target=self.update_pos)
-        if FS100.ERROR_SUCCESS == self.robot.one_move(FS100.MOVE_TYPE_LINEAR_INCREMENTAL_POS,
-                                                      FS100.MOVE_COORDINATE_SYSTEM_ROBOT, speed_class, speed, pos):
+        if FS100.ERROR_SUCCESS == self.robot.mov(FS100.MOVE_TYPE_LINEAR_INCREMENTAL_POS,
+                                                 FS100.MOVE_COORDINATE_SYSTEM_ROBOT, speed_class, speed, pos):
             time.sleep(0.1)  # robot may not update the status
             if not self.is_alarmed():
                 self.pos_updater.start()

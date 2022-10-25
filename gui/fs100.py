@@ -138,7 +138,8 @@ class FS100:
         switch_power(): Turn on/off the power supply
         move(): Make robot move to one or more specified position(s)
         stop(): Stop moving robot
-        one_move(): Make Robot move to the specified position
+        mov(): Make robot move to a specified position
+        pmov(): Make robot move to a specified pulse position
         select_cycle(): Select the way a job in pendant plays
         select_job(): Select a job in pendant for later playing
         play_job(): Start playing a job in pendant
@@ -451,9 +452,9 @@ class FS100:
             self.traveller_thread.join()
             self.stop_travelling = False
 
-    def one_move(self, move_type, coordinate, speed_class, speed, pos, form=0, extended_form=0, robot_no=1,
+    def mov(self, move_type, coordinate, speed_class, speed, pos, form=0, extended_form=0, robot_no=1,
                  station_no=0, tool_no=0, user_coor_no=0):
-        """Make Robot move to the specified position
+        """Make robot move to a specified position
 
         Args:
             move_type (int): Type of move path. One of following:
@@ -504,7 +505,48 @@ class FS100:
         ans = self.transmit(req.to_bytes())
         self.errno = ans.added_status
         if ans.status != FS100.ERROR_SUCCESS:
-            print("failed moving to one place, err={}".format(hex(ans.added_status)))
+            print("failed moving to the target position, err={}".format(hex(ans.added_status)))
+        return ans.status
+
+    def pmov(self, move_type, speed_class, speed, pulse, robot_no=1, station_no=0, tool_no=0):
+        """Make robot move to a specified pulse position
+
+        Args:
+            move_type (int): Type of move path. One of following:
+                FS100.MOVE_TYPE_JOINT_ABSOLUTE_POS,
+                FS100.MOVE_TYPE_LINEAR_ABSOLUTE_POS
+            speed_class (int): Type of move speed. One of following:
+                FS100.MOVE_SPEED_CLASS_PERCENT,
+                FS100.MOVE_SPEED_CLASS_MILLIMETER,
+                FS100.MOVE_SPEED_CLASS_DEGREE
+            speed (int): Move speed.
+                in 0.01 % for speed type FS100.MOVE_SPEED_CLASS_PERCENT,
+                in 0.1 mm/s for speed type FS100.MOVE_SPEED_CLASS_MILLIMETER,
+                in 0.1 degree/s for speed type FS100.MOVE_SPEED_CLASS_DEGREE
+            pulse (tuple): Target position in tuple (S, L, U, R, B, T, E).
+            robot_no (int, optional): Robot number (1 to 2). Defaults to 1.
+            station_no (int, optional): Station number. Defaults to 0.
+            tool_no (int, optional): Tool number (0 to 63). Defaults to 0.
+
+        Returns:
+            int: FS100.ERROR_SUCCESS for success, otherwise failure and errno attribute
+                indicates the error code.
+        """
+        data = struct.pack('<I', robot_no)
+        data += struct.pack('<I', station_no)
+        data += struct.pack('<I', speed_class)
+        data += struct.pack('<I', speed)
+        data += struct.pack('<iiiiiii', pulse[0], pulse[1], pulse[2], pulse[3], pulse[4], pulse[5], pulse[6])
+        data += struct.pack('<I', 0)  # reserved
+        data += struct.pack('<I', tool_no)
+        data += bytearray(36)
+
+        req = FS100ReqPacket(FS100PacketHeader.HEADER_DIVISION_ROBOT_CONTROL, 0, 0x8b, move_type, 0x01, 0x02, data,
+                             len(data))
+        ans = self.transmit(req.to_bytes())
+        self.errno = ans.added_status
+        if ans.status != FS100.ERROR_SUCCESS:
+            print("failed moving to the target position, err={}".format(hex(ans.added_status)))
         return ans.status
 
     def get_last_alarm(self, alarm):
@@ -797,7 +839,7 @@ class FS100:
 
         Args:
             filename (str): Name of the file in pendant
-            local_dir (str): Where in local to save the file 
+            local_dir (str): Where in local to save the file
 
         Returns:
             int: FS100.ERROR_SUCCESS for success, otherwise failure and errno attribute
@@ -865,18 +907,18 @@ class FS100:
             axis_name['7th_axis'] = ans.data[24:28].decode('utf-8').rstrip('\x00')
         return ans.status
 
-    def read_position(self, pos_info, robot_no=1):
+    def read_position(self, pos_info, robot_no=101):
         """Read the robot position
 
         Args:
             pos_info (dict): Where the robot position data is stored
-            robot_no (int, optional): Robot number. Defaults to 1.
+            robot_no (int, optional): Robot number. Defaults to 101 (R1 in cartesian coordinate).
 
         Returns:
             int: FS100.ERROR_SUCCESS for success, otherwise failure and errno attribute
                 indicates the error code.
         """
-        req = FS100ReqPacket(FS100PacketHeader.HEADER_DIVISION_ROBOT_CONTROL, 0, 0x75, 100 + robot_no, 0, 0x01,
+        req = FS100ReqPacket(FS100PacketHeader.HEADER_DIVISION_ROBOT_CONTROL, 0, 0x75, robot_no, 0, 0x01,
                              bytearray(0), 0)
         ans = self.transmit(req.to_bytes())
         self.errno = ans.added_status
@@ -1261,6 +1303,17 @@ if __name__ == '__main__':
     pos_info = {}
     if FS100.ERROR_SUCCESS == robot.read_position(pos_info):
         print(pos_info)
+    '''
+    # move to a specified pulse position
+    '''
+    robot = FS100('10.0.0.2')
+    pos_info = {}
+    if FS100.ERROR_SUCCESS == robot.read_position(pos_info, robot_no=1):
+        target_pulse = list(pos_info['pos'])
+        for n in range(len(target_pulse)):
+            target_pulse[n] -= 1000
+        robot.switch_power(FS100.POWER_TYPE_SERVO, FS100.POWER_SWITCH_ON)
+        robot.pmov(FS100.MOVE_TYPE_JOINT_ABSOLUTE_POS, FS100.MOVE_SPEED_CLASS_PERCENT, 250, tuple(target_pulse))
     '''
     # variable writing and reading
     '''
