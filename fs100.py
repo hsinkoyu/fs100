@@ -574,6 +574,8 @@ class FS100:
             int: FS100.ERROR_SUCCESS for success, otherwise failure and errno attribute
                 indicates the error code.
         """
+        if job_name.upper().endswith('.JBI'):
+            job_name = job_name[:-4]
         data = job_name.encode(encoding='utf-8')
         if len(data) > 32:
             raise ValueError('Job name is too long')

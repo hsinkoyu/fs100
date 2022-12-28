@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 
 import os
 import sys
@@ -28,6 +28,65 @@ class TestFS100Functions(unittest.TestCase):
         for key in result:
             print("  '{}': {}".format(key, result[key]))
         print("}")
+
+    def print_list_result(self, result):
+        print("")
+        print("[")
+        for item in result:
+            print("  '{}'".format(item))
+        print("]")
+
+    def test_0x00_file_control(self):
+        TEST_JOB_PATHNAME = '{}/{}'.format(test_dir, 'TEST_FS100.JBI')
+        TEST_JOB_CONTEXT = "/JOB\r\n"\
+                            "//NAME TEST_FS100\r\n"\
+                            "//POS\r\n"\
+                            "///NPOS 0,0,0,0,0,0\r\n"\
+                            "//INST\r\n"\
+                            "///DATE 2022/12/23 15:58\r\n"\
+                            "///ATTR SC,RW\r\n"\
+                            "///GROUP1 RB1\r\n"\
+                            "NOP\r\n"\
+                            "END\r\n"
+
+        result = list()
+        error = self._robot.get_file_list('*.JBI', result)
+        self.assertEqual(error, FS100.ERROR_SUCCESS)
+        self.print_list_result(result)
+
+        if os.path.basename(TEST_JOB_PATHNAME) in result:
+            error = self._robot.recv_file(os.path.basename(TEST_JOB_PATHNAME), os.path.dirname(TEST_JOB_PATHNAME))
+            self.assertEqual(error, FS100.ERROR_SUCCESS)
+            os.rename(TEST_JOB_PATHNAME, TEST_JOB_PATHNAME + '.orig')
+            error = self._robot.delete_file(os.path.basename(TEST_JOB_PATHNAME))
+            self.assertEqual(error, FS100.ERROR_SUCCESS)
+
+        with open(TEST_JOB_PATHNAME, 'w') as f:
+            f.write(TEST_JOB_CONTEXT)
+        error = self._robot.send_file(TEST_JOB_PATHNAME)
+        self.assertEqual(error, FS100.ERROR_SUCCESS)
+
+        # Also test commands 0x87, 0x84, 0x83 and 0x86
+        error = self._robot.select_job(os.path.basename(TEST_JOB_PATHNAME))
+        self.assertEqual(error, FS100.ERROR_SUCCESS)
+        error = self._robot.select_cycle(FS100.CYCLE_TYPE_ONE_CYCLE)
+        self.assertEqual(error, FS100.ERROR_SUCCESS)
+        error = self._robot.switch_power(FS100.POWER_TYPE_SERVO, FS100.POWER_SWITCH_ON)
+        self.assertEqual(error, FS100.ERROR_SUCCESS)
+        error = self._robot.play_job()
+        self.assertEqual(error, FS100.ERROR_SUCCESS)
+
+        error = self._robot.recv_file(os.path.basename(TEST_JOB_PATHNAME), os.path.dirname(TEST_JOB_PATHNAME))
+        self.assertEqual(error, FS100.ERROR_SUCCESS)
+        error = self._robot.delete_file(os.path.basename(TEST_JOB_PATHNAME))
+        self.assertEqual(error, FS100.ERROR_SUCCESS)
+        os.remove(TEST_JOB_PATHNAME)
+
+        if os.path.exists(TEST_JOB_PATHNAME + '.orig'):
+            os.rename(TEST_JOB_PATHNAME + '.orig', TEST_JOB_PATHNAME)
+            error = self._robot.send_file(TEST_JOB_PATHNAME)
+            self.assertEqual(error, FS100.ERROR_SUCCESS)
+            os.remove(TEST_JOB_PATHNAME)
 
     def test_0x70_get_last_alarm(self):
         result = dict()
@@ -196,7 +255,25 @@ class TestFS100Functions(unittest.TestCase):
         print("Write External Axis Variable #{} <-".format(TEST_EXTERNAL_AXIS_VARIABLE_NUMBER), end='')
         self.print_dict_result(var.val)
 
-    # TODO: Add test case for command 0x82-0x89
+    def test_0x82_reset_alarm(self):
+        error = self._robot.reset_alarm(FS100.RESET_ALARM_TYPE_ALARM)
+        self.assertEqual(error, FS100.ERROR_SUCCESS)
+
+    def test_0x85_show_text_on_pendant(self):
+        error = self._robot.show_text_on_pendant("Hello, FS100!")
+        self.assertEqual(error, FS100.ERROR_SUCCESS)
+
+    def test_0x88_acquire_management_time(self):
+        result = dict()
+        error = self._robot.acquire_management_time(FS100.ManagementTimeType.MOTION_R1, result)
+        self.assertEqual(error, FS100.ERROR_SUCCESS)
+        self.print_dict_result(result)
+
+    def test_0x89_acquire_system_info(self):
+        result = dict()
+        error = self._robot.acquire_system_info(FS100.SystemInfoType.R1, result)
+        self.assertEqual(error, FS100.ERROR_SUCCESS)
+        self.print_dict_result(result)
 
     def test_0x8a_mov(self):
         current_pos = dict()
@@ -205,8 +282,6 @@ class TestFS100Functions(unittest.TestCase):
         p = list()
         for n in range(len(current_pos['pos'])):
             p.append(current_pos['pos'][n] + 10000)
-        error = self._robot.switch_power(FS100.POWER_TYPE_SERVO, FS100.POWER_SWITCH_ON)
-        self.assertEqual(error, FS100.ERROR_SUCCESS)
         error = self._robot.mov(FS100.MOVE_TYPE_JOINT_ABSOLUTE_POS, FS100.MOVE_COORDINATE_SYSTEM_ROBOT, FS100.MOVE_SPEED_CLASS_PERCENT, 250, tuple(p))
         self.assertEqual(error, FS100.ERROR_SUCCESS)
         while True:
@@ -224,8 +299,6 @@ class TestFS100Functions(unittest.TestCase):
         p = list()
         for n in range(len(current_pulse['pos'])):
             p.append(current_pulse['pos'][n] + 1000)
-        error = self._robot.switch_power(FS100.POWER_TYPE_SERVO, FS100.POWER_SWITCH_ON)
-        self.assertEqual(error, FS100.ERROR_SUCCESS)
         error = self._robot.pmov(FS100.MOVE_TYPE_JOINT_ABSOLUTE_POS, FS100.MOVE_SPEED_CLASS_PERCENT, 250, tuple(p))
         self.assertEqual(error, FS100.ERROR_SUCCESS)
         while True:
