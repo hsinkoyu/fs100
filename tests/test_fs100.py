@@ -61,8 +61,8 @@ class TestFS100Functions(unittest.TestCase):
             error = self._robot.delete_file(os.path.basename(TEST_JOB_PATHNAME))
             self.assertEqual(error, FS100.ERROR_SUCCESS)
 
-        with open(TEST_JOB_PATHNAME, 'w') as f:
-            f.write(TEST_JOB_CONTEXT)
+        with open(TEST_JOB_PATHNAME, 'wb') as f:
+            f.write(TEST_JOB_CONTEXT.encode(encoding='ascii'))
         error = self._robot.send_file(TEST_JOB_PATHNAME)
         self.assertEqual(error, FS100.ERROR_SUCCESS)
 
