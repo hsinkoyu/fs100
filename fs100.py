@@ -177,26 +177,26 @@ class FS100:
     def __init__(self, ip, timeout=0.8):
         self.ip = ip
         self.timeout = timeout
-        self.sock = None
+        self._sock = None
 
         # number of last error
         self.errno = 0
 
-    def connect(self, port=UDP_PORT_ROBOT_CONTROL):
-        if self.sock is None:
-            self.sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-            self.sock.settimeout(self.timeout)
-            self.sock.connect((self.ip, port))
+    def _connect(self, port=UDP_PORT_ROBOT_CONTROL):
+        if self._sock is None:
+            self._sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+            self._sock.settimeout(self.timeout)
+            self._sock.connect((self.ip, port))
 
-    def disconnect(self):
-        if self.sock is not None:
-            self.sock.close()
-            self.sock = None
+    def _disconnect(self):
+        if self._sock is not None:
+            self._sock.close()
+            self._sock = None
 
-    def connected(self):
-        return self.sock is not None
+    def _connected(self):
+        return self._sock is not None
 
-    def generate_error_ans_packet(self, result, errno):
+    def _generate_error_ans_packet(self, result, errno):
         # when error, result and error number are what callers care about
         p = bytearray(25)
         p += struct.pack('B', result)
@@ -205,23 +205,23 @@ class FS100:
         p += bytearray(2)
         return p
 
-    def transmit(self, packet, direction=TRANSMISSION_SEND_AND_RECV):
+    def _transmit(self, packet, direction=TRANSMISSION_SEND_AND_RECV):
         # transmission_lock is a reentrant lock. Owning thread may acquire it again without blocking.
         # This prevents sending robot control command during file control transmission.
         FS100.transmission_lock.acquire()
 
-        if self.connected():
+        if self._connected():
             to_disc = False
         else:
-            self.connect()
+            self._connect()
             to_disc = True
 
         try:
-            self.sock.sendall(packet)
+            self._sock.sendall(packet)
             if FS100.DEBUG:
                 print("PC -> FS100: {}, Len={}".format(packet, len(packet)))
             if direction == FS100.TRANSMISSION_SEND_AND_RECV:
-                ans_packet, addr = self.sock.recvfrom(512)
+                ans_packet, addr = self._sock.recvfrom(512)
                 if FS100.DEBUG:
                     print("PC <- FS100: {}, Len={}".format(ans_packet, len(ans_packet)))
         except socket.error as error:
@@ -229,7 +229,7 @@ class FS100:
             errno = error.errno
             if errno is None:
                 errno = FS100.ERROR_CONNECTION
-            ans_packet = self.generate_error_ans_packet(FS100.ERROR_CONNECTION, errno)
+            ans_packet = self._generate_error_ans_packet(FS100.ERROR_CONNECTION, errno)
         finally:
             pass
 
@@ -239,7 +239,7 @@ class FS100:
             ans = None
 
         if to_disc:
-            self.disconnect()
+            self._disconnect()
 
         FS100.transmission_lock.release()
         return ans
@@ -262,7 +262,7 @@ class FS100:
         """
         req = FS100ReqPacket(FS100PacketHeader.HEADER_DIVISION_ROBOT_CONTROL, 0, 0x83, power_type, 0x01, 0x10,
                              struct.pack('<I', switch), 4)
-        ans = self.transmit(req.to_bytes())
+        ans = self._transmit(req.to_bytes())
         self.errno = ans.added_status
         if ans.status != FS100.ERROR_SUCCESS:
             print("failed switching power supply, err={}".format(hex(ans.added_status)))
@@ -287,7 +287,7 @@ class FS100:
         """
         req = FS100ReqPacket(FS100PacketHeader.HEADER_DIVISION_ROBOT_CONTROL, 0, 0x84, 2, 0x01, 0x10,
                              struct.pack('<I', cycle_type), 4)
-        ans = self.transmit(req.to_bytes())
+        ans = self._transmit(req.to_bytes())
         self.errno = ans.added_status
         if ans.status != FS100.ERROR_SUCCESS:
             print("failed to select cycle, err={}".format(hex(ans.added_status)))
@@ -343,7 +343,7 @@ class FS100:
 
         req = FS100ReqPacket(FS100PacketHeader.HEADER_DIVISION_ROBOT_CONTROL, 0, 0x8a, move_type, 0x01, 0x02, data,
                              len(data))
-        ans = self.transmit(req.to_bytes())
+        ans = self._transmit(req.to_bytes())
         self.errno = ans.added_status
         if ans.status != FS100.ERROR_SUCCESS:
             print("failed moving to the target position, err={}".format(hex(ans.added_status)))
@@ -384,7 +384,7 @@ class FS100:
 
         req = FS100ReqPacket(FS100PacketHeader.HEADER_DIVISION_ROBOT_CONTROL, 0, 0x8b, move_type, 0x01, 0x02, data,
                              len(data))
-        ans = self.transmit(req.to_bytes())
+        ans = self._transmit(req.to_bytes())
         self.errno = ans.added_status
         if ans.status != FS100.ERROR_SUCCESS:
             print("failed moving to the target position, err={}".format(hex(ans.added_status)))
@@ -401,7 +401,7 @@ class FS100:
                 indicates the error code.
         """
         req = FS100ReqPacket(FS100PacketHeader.HEADER_DIVISION_ROBOT_CONTROL, 0, 0x70, 1, 0, 0x01, bytearray(0), 0)
-        ans = self.transmit(req.to_bytes())
+        ans = self._transmit(req.to_bytes())
         self.errno = ans.added_status
         if ans.status != FS100.ERROR_SUCCESS:
             print("failed getting the last alarm, err={}".format(hex(ans.added_status)))
@@ -429,7 +429,7 @@ class FS100:
                 indicates the error code.
         """
         req = FS100ReqPacket(FS100PacketHeader.HEADER_DIVISION_ROBOT_CONTROL, 0, 0x71, alarm_num, 0, 0x01, bytearray(0), 0)
-        ans = self.transmit(req.to_bytes())
+        ans = self._transmit(req.to_bytes())
         self.errno = ans.added_status
         if ans.status != FS100.ERROR_SUCCESS:
             print("failed to read the alarm info, err={}".format(hex(ans.added_status)))
@@ -455,7 +455,7 @@ class FS100:
         """
         req = FS100ReqPacket(FS100PacketHeader.HEADER_DIVISION_ROBOT_CONTROL, 0, 0x82, alarm_type, 1, 0x10,
                              struct.pack('<I', 1), 4)
-        ans = self.transmit(req.to_bytes())
+        ans = self._transmit(req.to_bytes())
         self.errno = ans.added_status
         if ans.status != FS100.ERROR_SUCCESS:
             print("failed resetting alarms or cancelling errors, err={}".format(hex(ans.added_status)))
@@ -472,7 +472,7 @@ class FS100:
                 indicates the error code.
         """
         req = FS100ReqPacket(FS100PacketHeader.HEADER_DIVISION_ROBOT_CONTROL, 0, 0x72, 1, 0, 0x01, bytearray(0), 0)
-        ans = self.transmit(req.to_bytes())
+        ans = self._transmit(req.to_bytes())
         self.errno = ans.added_status
         if ans.status != FS100.ERROR_SUCCESS:
             print("failed getting the status, err={}".format(hex(ans.added_status)))
@@ -506,7 +506,7 @@ class FS100:
                 indicates the error code.
         """
         req = FS100ReqPacket(FS100PacketHeader.HEADER_DIVISION_ROBOT_CONTROL, 0, 0x73, 1, 0, 0x01, bytearray(0), 0)
-        ans = self.transmit(req.to_bytes())
+        ans = self._transmit(req.to_bytes())
         self.errno = ans.added_status
         if ans.status != FS100.ERROR_SUCCESS:
             print("failed to read the info of executing job, err={}".format(hex(ans.added_status)))
@@ -529,7 +529,7 @@ class FS100:
         """
         req = FS100ReqPacket(FS100PacketHeader.HEADER_DIVISION_ROBOT_CONTROL, 0, 0x86, 1, 1, 0x10,
                              struct.pack('<I', 1), 4)
-        ans = self.transmit(req.to_bytes())
+        ans = self._transmit(req.to_bytes())
         self.errno = ans.added_status
         if ans.status != FS100.ERROR_SUCCESS:
             print("failed playing job, err={}".format(hex(ans.added_status)))
@@ -557,7 +557,7 @@ class FS100:
         data += bytearray(32 - len(data))
         data += struct.pack('<I', line_num)
         req = FS100ReqPacket(FS100PacketHeader.HEADER_DIVISION_ROBOT_CONTROL, 0, 0x87, 1, 0, 0x02, data, len(data))
-        ans = self.transmit(req.to_bytes())
+        ans = self._transmit(req.to_bytes())
         self.errno = ans.added_status
         if ans.status != FS100.ERROR_SUCCESS:
             print("failed selecting the job, err={}".format(hex(ans.added_status)))
@@ -574,14 +574,14 @@ class FS100:
                 indicates the error code.
         """
         self.transmission_lock.acquire()
-        self.connect(FS100.UDP_PORT_FILE_CONTROL)
+        self._connect(FS100.UDP_PORT_FILE_CONTROL)
         data = file_name.encode(encoding='utf-8')
         req = FS100ReqPacket(FS100PacketHeader.HEADER_DIVISION_FILE_CONTROL, 0, 0, 0, 0, 0x09, data, len(data))
-        ans = self.transmit(req.to_bytes())
+        ans = self._transmit(req.to_bytes())
         self.errno = ans.added_status
         if ans.status != FS100.ERROR_SUCCESS:
             print("failed deleting the file, err={}".format(hex(ans.added_status)))
-        self.disconnect()
+        self._disconnect()
         self.transmission_lock.release()
         return ans.status
 
@@ -597,11 +597,11 @@ class FS100:
                 indicates the error code.
         """
         self.transmission_lock.acquire()
-        self.connect(FS100.UDP_PORT_FILE_CONTROL)
+        self._connect(FS100.UDP_PORT_FILE_CONTROL)
         raw = ''
         data = extension.encode(encoding='ascii')
         req = FS100ReqPacket(FS100PacketHeader.HEADER_DIVISION_FILE_CONTROL, 0, 0, 0, 0, 0x32, data, len(data))
-        ans = self.transmit(req.to_bytes())
+        ans = self._transmit(req.to_bytes())
         while ans.status == FS100.ERROR_SUCCESS:
             raw += ans.data.decode('utf-8')
             req = FS100ReqPacket(FS100PacketHeader.HEADER_DIVISION_FILE_CONTROL, 0, 0, 0, 0, 0x32, bytearray(0), 0)
@@ -610,16 +610,16 @@ class FS100:
             req.block_no = ans.block_no
             if ans.block_no & 0x80000000 != 0:
                 # The last file list data arrived. Send the final ack.
-                self.transmit(req.to_bytes(), FS100.TRANSMISSION_SEND)
+                self._transmit(req.to_bytes(), FS100.TRANSMISSION_SEND)
                 break
             else:
-                ans = self.transmit(req.to_bytes())
+                ans = self._transmit(req.to_bytes())
         self.errno = ans.added_status
         if ans.status != FS100.ERROR_SUCCESS:
             print("failed getting the file list, err={}".format(hex(ans.added_status)))
         else:
             list.extend(raw.splitlines())
-        self.disconnect()
+        self._disconnect()
         self.transmission_lock.release()
         return ans.status
 
@@ -648,13 +648,13 @@ class FS100:
             raise ValueError('An empty file')
 
         self.transmission_lock.acquire()
-        self.connect(FS100.UDP_PORT_FILE_CONTROL)
+        self._connect(FS100.UDP_PORT_FILE_CONTROL)
 
         CHUNK_SIZE = 400
         block_no = 0
         data = ntpath.basename(filename).encode(encoding='utf-8')
         req = FS100ReqPacket(FS100PacketHeader.HEADER_DIVISION_FILE_CONTROL, 0, 0, 0, 0, 0x15, data, len(data))
-        ans = self.transmit(req.to_bytes())
+        ans = self._transmit(req.to_bytes())
         while ans.status == FS100.ERROR_SUCCESS:
             if ans.block_no & 0x80000000 != 0:
                 # we have sent the last piece of data and this is the final ack from controller
@@ -668,12 +668,12 @@ class FS100:
             req = FS100ReqPacket(FS100PacketHeader.HEADER_DIVISION_FILE_CONTROL, 0, 0, 0, 0, 0x15, data, len(data))
             req.ack = FS100PacketHeader.HEADER_ACK_NOT_REQUEST
             req.block_no = block_no
-            ans = self.transmit(req.to_bytes())
+            ans = self._transmit(req.to_bytes())
         self.errno = ans.added_status
         if ans.status != FS100.ERROR_SUCCESS:
             print("failed sending the file, err={}".format(hex(ans.added_status)))
 
-        self.disconnect()
+        self._disconnect()
         self.transmission_lock.release()
         return ans.status
 
@@ -694,12 +694,12 @@ class FS100:
             return FS100.ERROR_NO_SUCH_FILE_OR_DIRECTORY
 
         self.transmission_lock.acquire()
-        self.connect(FS100.UDP_PORT_FILE_CONTROL)
+        self._connect(FS100.UDP_PORT_FILE_CONTROL)
 
         context = bytearray(0)
         data = filename.encode(encoding='utf-8')
         req = FS100ReqPacket(FS100PacketHeader.HEADER_DIVISION_FILE_CONTROL, 0, 0, 0, 0, 0x16, data, len(data))
-        ans = self.transmit(req.to_bytes())
+        ans = self._transmit(req.to_bytes())
         while ans.status == FS100.ERROR_SUCCESS:
             context += ans.data
             req = FS100ReqPacket(FS100PacketHeader.HEADER_DIVISION_FILE_CONTROL, 0, 0, 0, 0, 0x16, bytearray(0), 0)
@@ -708,10 +708,10 @@ class FS100:
             req.block_no = ans.block_no
             if ans.block_no & 0x80000000 != 0:
                 # Got the last piece of file. Send the final ack.
-                self.transmit(req.to_bytes(), FS100.TRANSMISSION_SEND)
+                self._transmit(req.to_bytes(), FS100.TRANSMISSION_SEND)
                 break
             else:
-                ans = self.transmit(req.to_bytes())
+                ans = self._transmit(req.to_bytes())
         self.errno = ans.added_status
         if ans.status != FS100.ERROR_SUCCESS:
             print("failed receiving the file, err={}".format(hex(ans.added_status)))
@@ -719,7 +719,7 @@ class FS100:
             with open("{}/{}".format(local_dir, filename), 'wb') as f:
                 f.write(context)
 
-        self.disconnect()
+        self._disconnect()
         self.transmission_lock.release()
         return ans.status
 
@@ -736,7 +736,7 @@ class FS100:
         """
         req = FS100ReqPacket(FS100PacketHeader.HEADER_DIVISION_ROBOT_CONTROL, 0, 0x74, robot_no, 0, 0x01,
                              bytearray(0), 0)
-        ans = self.transmit(req.to_bytes())
+        ans = self._transmit(req.to_bytes())
         self.errno = ans.added_status
         if ans.status != FS100.ERROR_SUCCESS:
             print("failed to read the name of each axis, err={}".format(hex(ans.added_status)))
@@ -763,7 +763,7 @@ class FS100:
         """
         req = FS100ReqPacket(FS100PacketHeader.HEADER_DIVISION_ROBOT_CONTROL, 0, 0x75, robot_no, 0, 0x01,
                              bytearray(0), 0)
-        ans = self.transmit(req.to_bytes())
+        ans = self._transmit(req.to_bytes())
         self.errno = ans.added_status
         if ans.status != FS100.ERROR_SUCCESS:
             print("failed reading the position info, err={}".format(hex(ans.added_status)))
@@ -792,7 +792,7 @@ class FS100:
         """
         req = FS100ReqPacket(FS100PacketHeader.HEADER_DIVISION_ROBOT_CONTROL, 0, 0x76, robot_no, 0, 0x01,
                              bytearray(0), 0)
-        ans = self.transmit(req.to_bytes())
+        ans = self._transmit(req.to_bytes())
         self.errno = ans.added_status
         if ans.status != FS100.ERROR_SUCCESS:
             print("failed reading the position error info, err={}".format(hex(ans.added_status)))
@@ -819,7 +819,7 @@ class FS100:
         """
         req = FS100ReqPacket(FS100PacketHeader.HEADER_DIVISION_ROBOT_CONTROL, 0, 0x77, robot_no, 0, 0x01,
                              bytearray(0), 0)
-        ans = self.transmit(req.to_bytes())
+        ans = self._transmit(req.to_bytes())
         self.errno = ans.added_status
         if ans.status != FS100.ERROR_SUCCESS:
             print("failed to read the torque data, err={}".format(hex(ans.added_status)))
@@ -963,7 +963,7 @@ class FS100:
             service = 0x01
         req = FS100ReqPacket(FS100PacketHeader.HEADER_DIVISION_ROBOT_CONTROL, 0, var.type, var.num, attr, service,
                              bytearray(0), 0)
-        ans = self.transmit(req.to_bytes())
+        ans = self._transmit(req.to_bytes())
         self.errno = ans.added_status
         if ans.status != FS100.ERROR_SUCCESS:
             print("failed reading the variable, err={}".format(hex(ans.added_status)))
@@ -1042,7 +1042,7 @@ class FS100:
         # plural commands start with 0x300, which is var.type + 0x288
         req = FS100ReqPacket(FS100PacketHeader.HEADER_DIVISION_ROBOT_CONTROL, 0, var.type + 0x288, var.num, attr, service,
                              data, len(data))
-        ans = self.transmit(req.to_bytes())
+        ans = self._transmit(req.to_bytes())
         self.errno = ans.added_status
         if ans.status != FS100.ERROR_SUCCESS:
             print("failed reading variables, err={}".format(hex(ans.added_status)))
@@ -1122,7 +1122,7 @@ class FS100:
         data = var.val_to_bytes()
         req = FS100ReqPacket(FS100PacketHeader.HEADER_DIVISION_ROBOT_CONTROL, 0, var.type, var.num, attr, service,
                              data, len(data))
-        ans = self.transmit(req.to_bytes())
+        ans = self._transmit(req.to_bytes())
         self.errno = ans.added_status
         if ans.status != FS100.ERROR_SUCCESS:
             print("failed writing the variable, err={}".format(hex(ans.added_status)))
@@ -1148,7 +1148,7 @@ class FS100:
                 indicates the error code.
         """
         req = FS100ReqPacket(FS100PacketHeader.HEADER_DIVISION_ROBOT_CONTROL, 0, 0x89, type, 0, 0x01, bytearray(0), 0)
-        ans = self.transmit(req.to_bytes())
+        ans = self._transmit(req.to_bytes())
         self.errno = ans.added_status
         if ans.status != FS100.ERROR_SUCCESS:
             print("failed acquiring system info, err={}".format(hex(ans.added_status)))
@@ -1192,7 +1192,7 @@ class FS100:
                 indicates the error code.
         """
         req = FS100ReqPacket(FS100PacketHeader.HEADER_DIVISION_ROBOT_CONTROL, 0, 0x88, type, 0, 0x01, bytearray(0), 0)
-        ans = self.transmit(req.to_bytes())
+        ans = self._transmit(req.to_bytes())
         self.errno = ans.added_status
         if ans.status != FS100.ERROR_SUCCESS:
             print("failed acquiring management time, err={}".format(hex(ans.added_status)))
@@ -1219,7 +1219,7 @@ class FS100:
             raise ValueError('Text is too long')
         data += bytearray(32 - len(data))
         req = FS100ReqPacket(FS100PacketHeader.HEADER_DIVISION_ROBOT_CONTROL, 0, 0x85, 1, 1, 0x10, data, len(data))
-        ans = self.transmit(req.to_bytes())
+        ans = self._transmit(req.to_bytes())
         self.errno = ans.added_status
         if ans.status != FS100.ERROR_SUCCESS:
             print("failed to show text on pendant, err={}".format(hex(ans.added_status)))
