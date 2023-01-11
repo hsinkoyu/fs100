@@ -80,13 +80,6 @@ class FS100ReqPacket(FS100PacketHeader):
         h += self.data
         return h
 
-    def clone(self, data=None):
-        if data is None:
-            data = self.data
-        data_size = len(data)
-        return FS100ReqPacket(self.division, self.req_id, self.cmd_no, self.inst, self.attr, self.service, data,
-                              data_size)
-
 
 class FS100AnsPacket(FS100PacketHeader):
 
@@ -97,18 +90,6 @@ class FS100AnsPacket(FS100PacketHeader):
         self.added_status_size = struct.unpack('B', packet[26:27])[0]
         self.added_status = struct.unpack('<H', packet[28:30])[0]
         self.data = packet[FS100PacketHeader.HEADER_SIZE:FS100PacketHeader.HEADER_SIZE + self.data_size]
-
-    # for debug purpose
-    def to_bytes(self):
-        h = FS100PacketHeader.to_bytes(self)
-        h += struct.pack('B', self.service)
-        h += struct.pack('B', self.status)
-        h += struct.pack('B', self.added_status_size)
-        h += struct.pack('B', FS100PacketHeader.HEADER_PADDING)
-        h += struct.pack('<H', self.added_status)
-        h += struct.pack('<H', FS100PacketHeader.HEADER_PADDING)
-        h += self.data
-        return h
 
 
 class FS100:
