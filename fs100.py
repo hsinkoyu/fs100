@@ -171,13 +171,11 @@ class FS100:
     RESET_ALARM_TYPE_ALARM = 1
     RESET_ALARM_TYPE_ERROR = 2
 
-    # threading safe lock
-    transmission_lock = threading.RLock()
-
     def __init__(self, ip, timeout=0.8):
         self.ip = ip
         self.timeout = timeout
         self._sock = None
+        self._transmission_lock = threading.RLock()
 
         # number of last error
         self.errno = 0
@@ -206,9 +204,9 @@ class FS100:
         return p
 
     def _transmit(self, packet, direction=TRANSMISSION_SEND_AND_RECV):
-        # transmission_lock is a reentrant lock. Owning thread may acquire it again without blocking.
+        # _transmission_lock is a reentrant lock. Owning thread may acquire it again without blocking.
         # This prevents sending robot control command during file control transmission.
-        FS100.transmission_lock.acquire()
+        self._transmission_lock.acquire()
 
         if self._connected():
             to_disc = False
@@ -241,7 +239,7 @@ class FS100:
         if to_disc:
             self._disconnect()
 
-        FS100.transmission_lock.release()
+        self._transmission_lock.release()
         return ans
 
     def switch_power(self, power_type, switch):
@@ -573,7 +571,7 @@ class FS100:
             int: FS100.ERROR_SUCCESS for success, otherwise failure and errno attribute
                 indicates the error code.
         """
-        self.transmission_lock.acquire()
+        self._transmission_lock.acquire()
         self._connect(FS100.UDP_PORT_FILE_CONTROL)
         data = file_name.encode(encoding='utf-8')
         req = FS100ReqPacket(FS100PacketHeader.HEADER_DIVISION_FILE_CONTROL, 0, 0, 0, 0, 0x09, data, len(data))
@@ -582,7 +580,7 @@ class FS100:
         if ans.status != FS100.ERROR_SUCCESS:
             print("failed deleting the file, err={}".format(hex(ans.added_status)))
         self._disconnect()
-        self.transmission_lock.release()
+        self._transmission_lock.release()
         return ans.status
 
     def get_file_list(self, extension, list):
@@ -596,7 +594,7 @@ class FS100:
             int: FS100.ERROR_SUCCESS for success, otherwise failure and errno attribute
                 indicates the error code.
         """
-        self.transmission_lock.acquire()
+        self._transmission_lock.acquire()
         self._connect(FS100.UDP_PORT_FILE_CONTROL)
         raw = ''
         data = extension.encode(encoding='ascii')
@@ -620,7 +618,7 @@ class FS100:
         else:
             list.extend(raw.splitlines())
         self._disconnect()
-        self.transmission_lock.release()
+        self._transmission_lock.release()
         return ans.status
 
     def send_file(self, filename):
@@ -647,7 +645,7 @@ class FS100:
         if len(context) == 0:
             raise ValueError('An empty file')
 
-        self.transmission_lock.acquire()
+        self._transmission_lock.acquire()
         self._connect(FS100.UDP_PORT_FILE_CONTROL)
 
         CHUNK_SIZE = 400
@@ -674,7 +672,7 @@ class FS100:
             print("failed sending the file, err={}".format(hex(ans.added_status)))
 
         self._disconnect()
-        self.transmission_lock.release()
+        self._transmission_lock.release()
         return ans.status
 
     def recv_file(self, filename, local_dir):
@@ -693,7 +691,7 @@ class FS100:
             self.errno = 0xe2b3
             return FS100.ERROR_NO_SUCH_FILE_OR_DIRECTORY
 
-        self.transmission_lock.acquire()
+        self._transmission_lock.acquire()
         self._connect(FS100.UDP_PORT_FILE_CONTROL)
 
         context = bytearray(0)
@@ -720,7 +718,7 @@ class FS100:
                 f.write(context)
 
         self._disconnect()
-        self.transmission_lock.release()
+        self._transmission_lock.release()
         return ans.status
 
     def read_axis_name(self, axis_name, robot_no=101):
