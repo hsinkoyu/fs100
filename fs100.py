@@ -136,6 +136,7 @@ class FS100:
         read_position_error(): Read the robot position error data
         read_torque(): Read the robot torque data of each axis
         read_variable(): Read a robot variable
+        read_variables(): Read multiple robot variable with plural commands
         write_variable(): Write a robot variable
         get_status(): Retrieve various status of the robot
         read_alarm_info(): Retrieve info of the specified alarm
@@ -970,6 +971,9 @@ class FS100:
             int: FS100.ERROR_SUCCESS for success, otherwise failure and errno attribute
                 indicates the error code.
         """
+        if FS100.DEBUG:
+            print("FS100.read_variable(VarType={}, {})".format(var.type, var.num))
+
         attr = 1
         service = 0x0e
         if var.type in (FS100.VarType.ROBOT_POSITION, FS100.VarType.BASE_POSITION, FS100.VarType.EXTERNAL_AXIS):
@@ -985,6 +989,130 @@ class FS100:
         else:
             var.set_val(ans.data)
         return ans.status
+
+    def _group_nums(self, list):
+        list2 = sorted(list)
+        sublist = []
+
+        while list2:
+            v = list2.pop(0)
+
+            if not sublist or sublist[-1] in [v, v-1]:
+                sublist.append(v)
+            else:
+                yield sublist
+                sublist = [v]
+
+        if sublist:
+            yield sublist
+
+    def _read_consecutive_variables(self, vars):
+        """Read multiple consecutive robot variables (of the same type)
+
+        Args:
+            vars (list[FS100.Variable]): The variables being read
+
+        Raises:
+            ValueError: Empty list given or doesn't contain var objects with the same type or
+            var objects numbers not consecutive
+
+        Note:
+            Value of each variable is stored in `val` attribute of each var object.
+            All var objects in vars must have the same type (i.e., INTEGER) and must have
+            consecutive numbers, otherwise failure is immediately returned
+
+        Examples:
+            >>> robot = FS100('10.0.0.2')
+            >>> vars = [FS100.Variable(FS100.VarType.INTEGER, 0), FS100.Variable(FS100.VarType.INTEGER, 1)]
+            >>> robot.read_variables(vars)
+            >>> print([(v.num, v.val) for v in vars])
+
+        Returns:
+            int: FS100.ERROR_SUCCESS for success, otherwise failure and errno attribute
+                indicates the error code.
+        """
+        if FS100.DEBUG:
+            print("FS100._read_consecutive_variables(VarType={}, list={})".format(vars[0].type if len(vars) > 0 else "", [v.num for v in vars]))
+
+        attr = 0
+        service = 0x33
+        
+        if len(vars) == 0:
+            raise ValueError('Input list cannot be empty')
+        
+        # first variable gives the starting number and type and single values size
+        var = vars[0]
+        var_type_size = len(FS100.Variable(var.type, 0, 0).val_to_bytes())
+        
+        if any([v.type != var.type for v in vars]):
+            raise ValueError('Input list must contain var objects of the same type')
+
+        nums = [v.num for v in vars]
+        if sorted(nums) != list(range(min(nums), max(nums) + 1)):
+            raise ValueError('Input list must contain var objects with consecutive numbers')
+
+        # data contains number of variables to be read from the starting number
+        var_count = len(vars)
+        if var_type_size == 1 and var_count % 2 == 1:
+            # the protocol requires multiple of 2 for 1-byte variable types
+            var_count += 1
+        data = struct.pack('<I', var_count)
+
+        # plural commands start with 0x300, which is var.type + 0x288
+        req = FS100ReqPacket(FS100PacketHeader.HEADER_DIVISION_ROBOT_CONTROL, 0, var.type + 0x288, var.num, attr, service,
+                             data, len(data))
+        ans = self.transmit(req.to_bytes())
+        self.errno = ans.added_status
+        if ans.status != FS100.ERROR_SUCCESS:
+            print("failed reading variables, err={}".format(hex(ans.added_status)))
+        else:
+            for ix, v in enumerate(vars):
+                # returned data start with 4 bytes with number of variables, then individual consecutive values follow
+                v.set_val(ans.data[4 + var_type_size * ix:4 + var_type_size * (ix + 1)])
+        return ans.status
+
+    def read_variables(self, vars):
+        """Read multiple robot variables (of the same type)
+
+        Args:
+            vars (list[FS100.Variable]): The variables being read
+
+        Raises:
+            ValueError: Empty list given or doesn't contain var objects with the same type
+
+        Note:
+            Internally it will divide vars list into sublists containing var objects
+            with consecutive numbers. Then it will execute `_read_consecutive_variables`
+            method to read them from the robot in one call (using HSE plural command).
+            
+            Value of each variable is stored in `val` attribute of each var object.
+            All var objects in vars must have the same type (i.e., INTEGER), otherwise
+            failure is immediately returned
+
+        Examples:
+            >>> robot = FS100('10.0.0.2')
+            >>> vars = [FS100.Variable(FS100.VarType.INTEGER, 3), FS100.Variable(FS100.VarType.INTEGER, 5), FS100.Variable(FS100.VarType.INTEGER, 6)]
+            >>> robot.read_variables(vars)
+            >>> print([(v.num, v.val) for v in vars])
+
+        Returns:
+            int: FS100.ERROR_SUCCESS for success, otherwise failure and errno attribute
+                indicates the error code.
+        """
+        
+        # groups list of vars to list of lists of consecutive vars
+        vars_dict = {v.num: v for v in vars}
+        keys = [k for k, v in vars_dict.items()]
+        keys_lists = [sublist for sublist in self._group_nums(keys)]
+
+        ret = FS100.ERROR_SUCCESS
+        for keys_consecutive in keys_lists:
+            if len(keys_consecutive) == 1: ret |= self.read_variable(vars_dict[keys_consecutive[0]])
+            elif len(keys_consecutive) > 1 and vars_dict[keys_consecutive[0]].type == FS100.VarType.STRING:
+                for k in keys_consecutive: ret |= self.read_variable(vars_dict[k])
+            elif len(keys_consecutive) > 1: ret |= self._read_consecutive_variables([vars_dict[k] for k in keys_consecutive])
+
+        return ret
 
     def write_variable(self, var):
         """Write a robot variable
