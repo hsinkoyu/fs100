@@ -838,7 +838,7 @@ class FS100:
         INTEGER = 0x7b  # 2 bytes
         DOUBLE = 0x7c  # 4 bytes
         REAL = 0x7d  # 4 bytes
-        STRING = 0x7e  # max. 16 bytes
+        STRING = 0x7e  # 16 bytes
         ROBOT_POSITION = 0x7f
         BASE_POSITION = 0x80
         EXTERNAL_AXIS = 0x81
@@ -851,10 +851,34 @@ class FS100:
             num (int): Variable number
             val (*, optional): Variable value
         """
-        def __init__(self, type, num, val=None):
+        def __init__(self, type, num, val=0):
             self.type = type
             self.num = num
             self.val = val
+            if self.val == 0:
+                if self.type == FS100.VarType.STRING:
+                    self.val = '\0' * 16
+                elif self.type == FS100.VarType.ROBOT_POSITION:
+                    self.val = {
+                        'data_type': 0,
+                        'form': 0,
+                        'tool_no': 0,
+                        'user_coor_no': 0,
+                        'extended_form': 0,
+                        'pos': (0, 0, 0, 0, 0, 0, 0, 0)
+                    }
+                elif self.type == FS100.VarType.BASE_POSITION or self.type == FS100.VarType.EXTERNAL_AXIS:
+                    self.val = {
+                        'data_type': 0,
+                        '1st_axis': 0,
+                        '2nd_axis': 0,
+                        '3rd_axis': 0,
+                        '4th_axis': 0,
+                        '5th_axis': 0,
+                        '6th_axis': 0,
+                        '7th_axis': 0,
+                        '8th_axis': 0
+                    }
 
         def set_val(self, raw_bytes):
             if self.type == FS100.VarType.IO:
@@ -870,9 +894,8 @@ class FS100:
             elif self.type == FS100.VarType.REAL:
                 self.val = struct.unpack('<f', raw_bytes[0:4])[0]
             elif self.type == FS100.VarType.STRING:
-                self.val = raw_bytes.decode('utf-8')
+                self.val = raw_bytes.decode('utf-8').rstrip('\x00')
             elif self.type == FS100.VarType.ROBOT_POSITION:
-                if self.val is None: self.val = {}
                 self.val['data_type'] = struct.unpack('<I', raw_bytes[0:4])[0]
                 self.val['form'] = struct.unpack('<I', raw_bytes[4:8])[0]
                 self.val['tool_no'] = struct.unpack('<I', raw_bytes[8:12])[0]
@@ -884,9 +907,9 @@ class FS100:
                                    struct.unpack('<i', raw_bytes[32:36])[0],
                                    struct.unpack('<i', raw_bytes[36:40])[0],
                                    struct.unpack('<i', raw_bytes[40:44])[0],
-                                   struct.unpack('<i', raw_bytes[44:48])[0])
+                                   struct.unpack('<i', raw_bytes[44:48])[0],
+                                   struct.unpack('<i', raw_bytes[48:52])[0])
             elif self.type in (FS100.VarType.BASE_POSITION, FS100.VarType.EXTERNAL_AXIS):
-                if self.val is None: self.val = {}
                 self.val['data_type'] = struct.unpack('<I', raw_bytes[0:4])[0]
                 self.val['1st_axis'] = struct.unpack('<i', raw_bytes[4:8])[0]
                 self.val['2nd_axis'] = struct.unpack('<i', raw_bytes[8:12])[0]
@@ -895,6 +918,7 @@ class FS100:
                 self.val['5th_axis'] = struct.unpack('<i', raw_bytes[20:24])[0]
                 self.val['6th_axis'] = struct.unpack('<i', raw_bytes[24:28])[0]
                 self.val['7th_axis'] = struct.unpack('<i', raw_bytes[28:32])[0]
+                self.val['8th_axis'] = struct.unpack('<i', raw_bytes[32:36])[0]
 
         def val_to_bytes(self):
             ret = None
@@ -912,6 +936,10 @@ class FS100:
                 ret = struct.pack('<f', self.val)
             elif self.type == FS100.VarType.STRING:
                 ret = self.val.encode(encoding='utf-8')
+                if len(ret) > 16:
+                    ret = ret[:16]
+                else:
+                    ret += bytes(16 - len(ret))
             elif self.type == FS100.VarType.ROBOT_POSITION:
                 pos = self.val['pos']
                 ret = struct.pack('<I', self.val['data_type'])
@@ -919,7 +947,7 @@ class FS100:
                 ret += struct.pack('<I', self.val['tool_no'])
                 ret += struct.pack('<I', self.val['user_coor_no'])
                 ret += struct.pack('<I', self.val['extended_form'])
-                ret += struct.pack('<iiiiiii', pos[0], pos[1], pos[2], pos[3], pos[4], pos[5], pos[6])
+                ret += struct.pack('<iiiiiiii', pos[0], pos[1], pos[2], pos[3], pos[4], pos[5], pos[6], pos[7])
             elif self.type in (FS100.VarType.BASE_POSITION, FS100.VarType.EXTERNAL_AXIS):
                 ret = struct.pack('<I', self.val['data_type'])
                 ret += struct.pack('<i', self.val['1st_axis'])
@@ -929,6 +957,7 @@ class FS100:
                 ret += struct.pack('<i', self.val['5th_axis'])
                 ret += struct.pack('<i', self.val['6th_axis'])
                 ret += struct.pack('<i', self.val['7th_axis'])
+                ret += struct.pack('<i', self.val['8th_axis'])
             return ret
 
     def read_variable(self, var):
@@ -1015,14 +1044,14 @@ class FS100:
 
         attr = 0
         service = 0x33
-        
+
         if len(vars) == 0:
             raise ValueError('Input list cannot be empty')
-        
+
         # first variable gives the starting number and type and single values size
         var = vars[0]
         var_type_size = len(FS100.Variable(var.type, 0, 0).val_to_bytes())
-        
+
         if any([v.type != var.type for v in vars]):
             raise ValueError('Input list must contain var objects of the same type')
 
@@ -1063,7 +1092,7 @@ class FS100:
             Internally it will divide vars list into sublists containing var objects
             with consecutive numbers. Then it will execute `_read_consecutive_variables`
             method to read them from the robot in one call (using HSE plural command).
-            
+
             Value of each variable is stored in `val` attribute of each var object.
             All var objects in vars must have the same type (i.e., INTEGER), otherwise
             failure is immediately returned
@@ -1078,7 +1107,7 @@ class FS100:
             int: FS100.ERROR_SUCCESS for success, otherwise failure and errno attribute
                 indicates the error code.
         """
-        
+
         # groups list of vars to list of lists of consecutive vars
         vars_dict = {v.num: v for v in vars}
         keys = [k for k, v in vars_dict.items()]
