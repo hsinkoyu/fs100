@@ -1116,8 +1116,6 @@ class FS100:
         ret = FS100.ERROR_SUCCESS
         for keys_consecutive in keys_lists:
             if len(keys_consecutive) == 1: ret |= self.read_variable(vars_dict[keys_consecutive[0]])
-            elif len(keys_consecutive) > 1 and vars_dict[keys_consecutive[0]].type == FS100.VarType.STRING:
-                for k in keys_consecutive: ret |= self.read_variable(vars_dict[k])
             elif len(keys_consecutive) > 1: ret |= self._read_consecutive_variables([vars_dict[k] for k in keys_consecutive])
 
         return ret
